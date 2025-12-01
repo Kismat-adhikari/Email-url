@@ -1,0 +1,101 @@
+EMAIL VALIDATION TEST CASES BREAKDOWN
+======================================
+
+VALID EMAILS (Should PASS) - 25 cases:
+---------------------------------------
+1. user@example.com - Basic valid email
+2. john.doe@company.co.uk - Dot in local part, multi-level TLD
+3. alice_smith@test-domain.org - Underscore in local, hyphen in domain
+4. bob+filter@mail.example.com - Plus sign in local part
+5. admin@subdomain.example.com - Subdomain
+6. test123@numbers456.com - Numbers in both parts
+7. a@bc.de - Minimal valid email
+8. valid.email@valid-domain.com - Multiple dots and hyphens
+9. user.name+tag@example.com - Combination of special chars
+10. first.last@sub.domain.example.com - Multiple subdomains
+11. test_user@example.co - Two-letter TLD
+12. user-name@example.com - Hyphen in local part
+13. 123@example.com - All numbers in local part
+14. a.b.c@example.com - Multiple dots in local
+15. user@example-domain.com - Hyphen in domain
+16. test@sub-domain.example.org - Hyphen in subdomain
+17. valid@a-b-c.com - Multiple hyphens in domain
+18. user@123.456.com - Numbers in domain
+19. name@domain.technology - Long TLD
+20. email@test.museum - Museum TLD
+21. user@nowhitespace.com - No whitespace test
+22. test@valid.domain.info - Info TLD
+23. admin@company.business - Business TLD
+24. user@example.co.uk - UK domain
+25. test@sub.sub.example.com - Multiple subdomains
+
+INVALID EMAILS (Should FAIL) - 43 cases:
+-----------------------------------------
+
+ONE @ RULE VIOLATIONS:
+26. user@example - Missing TLD/dot in domain
+27. @example.com - Missing local part
+28. user@ - Missing domain part
+29. user@@example.com - Double @ symbol
+30. user@example@com - Multiple @ symbols
+31. @ - Only @ symbol
+32. user - No @ symbol at all
+33. example.com - No @ symbol
+34. user@domain.com@extra.com - Multiple @ symbols
+35. user@@domain.com - Consecutive @ symbols
+
+LOCAL PART CHARACTER RULES:
+36. test!user@example.com - Exclamation mark not allowed
+37. user#name@example.com - Hash not allowed
+38. user$name@example.com - Dollar sign not allowed
+39. user%name@example.com - Percent not allowed
+40. user&name@example.com - Ampersand not allowed
+41. user*name@example.com - Asterisk not allowed
+
+LEADING/TRAILING DOTS:
+42. .user@example.com - Leading dot in local part
+43. user.@example.com - Trailing dot in local part
+44. user@.example.com - Leading dot in domain
+45. user@example.com. - Trailing dot in domain
+
+CONSECUTIVE DOTS:
+46. user..name@example.com - Consecutive dots in local part
+47. user@example..com - Consecutive dots in domain
+48. user@domain..example.com - Consecutive dots in domain
+49. user@domain.example..com - Consecutive dots in domain
+50. ..user@example.com - Multiple leading dots
+51. user..@example.com - Multiple trailing dots
+
+DOMAIN STRUCTURE RULES:
+52. user@example - No dot in domain
+53. user@domain - No dot in domain
+54. user@.com - Empty domain label
+
+TLD LENGTH RULES:
+55. user@example.c - TLD only 1 character (min is 2)
+
+DOMAIN LABEL VALIDITY:
+56. user@-example.com - Domain label starts with hyphen
+57. user@example-.com - Domain label ends with hyphen
+
+LENGTH LIMITS:
+58. verylonglocalpartthatexceedsthemaximumlengthof64charactersallowed@example.com - Local part > 64 chars
+59. user@verylongdomainnamethatshouldstillbevalidaslongasitdoesnotexceedthetotallimitof254charactersfortheentireemailaddresswhichisquitelargebutwestillneedtotestthislimitproperlytoensureourvalidatorworkscorrectlyinallcasesandedgeconditions.com - Total > 254 chars
+
+WHITESPACE HANDLING:
+60. user name@example.com - Space in local part
+61. user@exam ple.com - Space in domain
+62. user@example .com - Space before TLD
+63.  user@example.com - Leading whitespace
+64. user@example.com  - Trailing whitespace (with space)
+
+DOMAIN CHARACTER RULES:
+65. user@domain_name.com - Underscore not allowed in domain
+66. user@domain name.com - Space in domain
+
+EDGE CASES:
+67. a@b.co - Minimal valid (2-char TLD)
+
+TOTAL: 67 test cases
+- Valid: 25
+- Invalid: 42
