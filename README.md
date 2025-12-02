@@ -23,13 +23,29 @@ cd Email-url
 ## Usage
 
 ```bash
-python emailvali.py <filepath>
+python emailvali.py <filepath> [options]
 ```
 
-### Example
+### Options
+
+- `--quiet` or `-q` - Only show summary statistics (suppress individual results)
+- `--version` or `-v` - Show version number
+- `--help` or `-h` - Show help message
+
+### Examples
 
 ```bash
+# Basic usage
 python emailvali.py test_emails.txt
+
+# Quiet mode (only summary)
+python emailvali.py test_emails.txt --quiet
+
+# Show version
+python emailvali.py --version
+
+# Show help
+python emailvali.py --help
 ```
 
 ### Output
@@ -57,9 +73,11 @@ The validator implements intermediate-level email validation rules:
 - ✅ No consecutive dots anywhere
 - ✅ Domain must contain at least one dot
 - ✅ Domain labels cannot start or end with hyphens
+- ✅ Domain labels max 63 characters each
 - ✅ TLD must be at least 2 characters
 - ✅ Local part max 64 characters
-- ✅ Total email max 254 characters
+- ✅ Total domain max 253 characters
+- ✅ Total email max 254 
 - ✅ No spaces anywhere
 - ✅ Standard allowed characters only
 
