@@ -4,13 +4,14 @@ Flask Backend for Email Validator
 RESTful API with CORS support for React frontend
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from emailvalidator_unified import validate_email, validate_email_advanced, validate_batch
 import time
+import os
 from typing import List, Dict, Any
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='frontend/build', static_url_path='')
 CORS(app)  # Enable CORS for React frontend
 
 # ============================================================================
@@ -19,13 +20,18 @@ CORS(app)  # Enable CORS for React frontend
 
 @app.route('/')
 def home():
+    """Serve React frontend."""
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/api')
+def api_home():
     """API documentation homepage."""
     return jsonify({
         'name': 'Email Validator API',
         'version': '2.0.0',
         'description': 'Advanced email validation with DNS, MX, disposable, and typo detection',
         'endpoints': {
-            'GET /': 'API documentation',
+            'GET /api': 'API documentation',
             'GET /api/health': 'Health check',
             'POST /api/validate': 'Validate single email (basic)',
             'POST /api/validate/advanced': 'Validate single email (advanced)',
@@ -317,19 +323,22 @@ def stats():
 
 @app.errorhandler(404)
 def not_found(error):
-    """Handle 404 errors."""
-    return jsonify({
-        'error': 'Not found',
-        'message': 'The requested endpoint does not exist',
-        'available_endpoints': [
-            'GET /',
-            'GET /api/health',
-            'POST /api/validate',
-            'POST /api/validate/advanced',
-            'POST /api/validate/batch',
-            'GET /api/stats'
-        ]
-    }), 404
+    """Handle 404 errors - serve React app for client-side routing."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'error': 'Not found',
+            'message': 'The requested endpoint does not exist',
+            'available_endpoints': [
+                'GET /api',
+                'GET /api/health',
+                'POST /api/validate',
+                'POST /api/validate/advanced',
+                'POST /api/validate/batch',
+                'GET /api/stats'
+            ]
+        }), 404
+    # Serve React app for all other routes
+    return send_from_directory(app.static_folder, 'index.html')
 
 
 @app.errorhandler(405)
