@@ -18,9 +18,12 @@ function App() {
     return saved ? JSON.parse(saved) : false;
   });
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+  // API URL - use relative path in production, localhost in development
+  const API_URL = process.env.NODE_ENV === 'production' 
+    ? ''  // Empty string for relative URLs in production
+    : 'http://localhost:5000';  // Localhost for development
 
-  // Toggle dark mode
+  // Toggle dark mode 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
     setDarkMode(newMode);
