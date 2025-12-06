@@ -1,4 +1,4 @@
- import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -6,9 +6,6 @@ import './App.css';
 // ANONYMOUS USER ID SYSTEM
 // ============================================================================
 
-/**
- * Generate a UUIDv4 for anonymous user identification
- */
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
     const r = Math.random() * 16 | 0;
@@ -17,10 +14,6 @@ function generateUUID() {
   });
 }
 
-/**
- * Get or create anonymous user ID
- * Stored in localStorage for persistence across sessions
- */
 function getAnonUserId() {
   let anonUserId = localStorage.getItem('anon_user_id');
   
@@ -35,35 +28,26 @@ function getAnonUserId() {
 
 function App() {
   const [email, setEmail] = useState('');
-  const [mode, setMode] = useState('advanced'); // 'basic' or 'advanced'
+  const [mode, setMode] = useState('advanced');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [batchMode, setBatchMode] = useState(false);
   const [batchEmails, setBatchEmails] = useState('');
   const [batchResults, setBatchResults] = useState(null);
-  const [uploadMode, setUploadMode] = useState('text'); // 'text' or 'file'
+  const [uploadMode, setUploadMode] = useState('text');
   const [selectedFile, setSelectedFile] = useState(null);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : false;
   });
   
-  // New state for dashboard features
-  const [activeTab, setActiveTab] = useState('validate'); // 'validate', 'history', 'analytics'
-  const [validationHistory, setValidationHistory] = useState([]);
-  const [analytics, setAnalytics] = useState(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  
-  // Anonymous User ID
   const [anonUserId] = useState(() => getAnonUserId());
 
-  // API URL - use relative path in production, localhost in development
   const API_URL = process.env.NODE_ENV === 'production' 
-    ? ''  // Empty string for relative URLs in production
-    : 'http://localhost:5000';  // Localhost for development
+    ? ''
+    : 'http://localhost:5000';
   
-  // Axios instance with anonymous user ID header
   const api = axios.create({
     baseURL: API_URL,
     headers: {
@@ -71,7 +55,6 @@ function App() {
     }
   });
 
-  // Toggle dark mode 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
     setDarkMode(newMode);
@@ -79,60 +62,10 @@ function App() {
     document.body.classList.toggle('dark-mode', newMode);
   };
 
-  // Apply dark mode on mount
   useEffect(() => {
     document.body.classList.toggle('dark-mode', darkMode);
   }, [darkMode]);
 
-  // Load validation history when switching to history tab
-  useEffect(() => {
-    if (activeTab === 'history') {
-      loadValidationHistory();
-    } else if (activeTab === 'analytics') {
-      loadAnalytics();
-    }
-  }, [activeTab]);
-
-  // Load validation history from Supabase
-  const loadValidationHistory = async () => {
-    setHistoryLoading(true);
-    try {
-      const response = await api.get('/api/records', {
-        params: { limit: 100 }
-      });
-      console.log('History response:', response.data);
-      console.log('Records:', response.data.records);
-      setValidationHistory(response.data.records || []);
-    } catch (err) {
-      console.error('Failed to load history:', err);
-      setValidationHistory([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  // Clear history function
-  const clearHistory = () => {
-    if (window.confirm('Are you sure you want to clear all history? This cannot be undone.')) {
-      setValidationHistory([]);
-      // Note: This only clears the display. To delete from Supabase, you'd need to call DELETE endpoints
-    }
-  };
-
-  // Load analytics data from Supabase
-  const loadAnalytics = async () => {
-    setHistoryLoading(true);
-    try {
-      const response = await api.get('/api/statistics');
-      setAnalytics(response.data);
-    } catch (err) {
-      console.error('Failed to load analytics:', err);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  // Export to CSV
   const exportToCSV = () => {
     if (!batchResults || !batchResults.results) return;
 
@@ -168,7 +101,6 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
-  // Copy to clipboard
   const copyToClipboard = () => {
     if (!batchResults || !batchResults.results) return;
 
@@ -198,11 +130,6 @@ function App() {
       const response = await api.post(endpoint, { email });
       
       setResult(response.data);
-      
-      // Refresh history if on history tab
-      if (activeTab === 'history') {
-        loadValidationHistory();
-      }
     } catch (err) {
       console.error('Validation error:', err);
       const errorMsg = err.response?.data?.message 
@@ -224,7 +151,6 @@ function App() {
       setSelectedFile(file);
       setError(null);
       
-      // Read file and populate textarea
       const reader = new FileReader();
       reader.onload = (event) => {
         setBatchEmails(event.target.result);
@@ -254,11 +180,6 @@ function App() {
         advanced: mode === 'advanced'
       });
       setBatchResults(response.data);
-      
-      // Refresh history if on history tab
-      if (activeTab === 'history') {
-        loadValidationHistory();
-      }
     } catch (err) {
       setError(err.response?.data?.message || 'Batch validation failed');
     } finally {
@@ -299,12 +220,6 @@ function App() {
     return level ? level.charAt(0).toUpperCase() + level.slice(1) : 'Unknown';
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString();
-  };
-
   return (
     <div className="App">
       <div className="container">
@@ -320,53 +235,30 @@ function App() {
           </div>
         </header>
 
-        <div className="tab-selector">
+        <div className="mode-selector">
           <button
-            className={`tab-btn ${activeTab === 'validate' ? 'active' : ''}`}
-            onClick={() => setActiveTab('validate')}
+            className={`mode-btn ${!batchMode ? 'active' : ''}`}
+            onClick={() => {
+              setBatchMode(false);
+              setResult(null);
+              setBatchResults(null);
+              setError(null);
+            }}
           >
-            🔍 Validate
+            Single Email
           </button>
           <button
-            className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveTab('history')}
+            className={`mode-btn ${batchMode ? 'active' : ''}`}
+            onClick={() => {
+              setBatchMode(true);
+              setResult(null);
+              setBatchResults(null);
+              setError(null);
+            }}
           >
-            📜 History
-          </button>
-          <button
-            className={`tab-btn ${activeTab === 'analytics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analytics')}
-          >
-            📊 Analytics
+            Batch Validation
           </button>
         </div>
-
-        {activeTab === 'validate' && (
-          <>
-            <div className="mode-selector">
-              <button
-                className={`mode-btn ${!batchMode ? 'active' : ''}`}
-                onClick={() => {
-                  setBatchMode(false);
-                  setResult(null);
-                  setBatchResults(null);
-                  setError(null);
-                }}
-              >
-                Single Email
-              </button>
-              <button
-                className={`mode-btn ${batchMode ? 'active' : ''}`}
-                onClick={() => {
-                  setBatchMode(true);
-                  setResult(null);
-                  setBatchResults(null);
-                  setError(null);
-                }}
-              >
-                Batch Validation
-              </button>
-            </div>
 
         <div className="validation-mode">
           <label>
@@ -376,7 +268,7 @@ function App() {
               checked={mode === 'basic'}
               onChange={(e) => {
                 setMode(e.target.value);
-                setResult(null); // Clear result when switching modes
+                setResult(null);
                 setError(null);
               }}
             />
@@ -389,7 +281,7 @@ function App() {
               checked={mode === 'advanced'}
               onChange={(e) => {
                 setMode(e.target.value);
-                setResult(null); // Clear result when switching modes
+                setResult(null);
                 setError(null);
               }}
             />
@@ -528,7 +420,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Risk Score Section */}
                 {result.risk_score !== undefined && (
                   <div className="risk-section">
                     <div className="risk-header">
@@ -554,7 +445,6 @@ function App() {
                   </div>
                 )}
 
-                {/* Enrichment Data Section */}
                 {result.enrichment && (
                   <div className="enrichment-section">
                     <h3>📧 Email Intelligence</h3>
@@ -688,186 +578,6 @@ function App() {
               ))}
             </div>
           </div>
-        )}
-
-        {/* History Tab */}
-        {activeTab === 'history' && (
-          <div className="history-section">
-            <div className="history-header">
-              <h2>📜 Validation History</h2>
-              <div className="history-controls">
-                <button className="refresh-btn" onClick={loadValidationHistory} disabled={historyLoading}>
-                  {historyLoading ? '⏳ Loading...' : '🔄 Refresh'}
-                </button>
-                {validationHistory.length > 0 && (
-                  <button className="clear-btn" onClick={clearHistory}>
-                    🗑️ Clear History
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="info-box" style={{ margin: '0 32px 20px' }}>
-              <strong>🔐 Private History:</strong> Your validation history is stored securely and linked to your anonymous ID. 
-              Only you can see your history - no login required!
-              <br />
-              <small style={{ opacity: 0.8 }}>Anonymous ID: {anonUserId.substring(0, 8)}...</small>
-            </div>
-
-            {historyLoading ? (
-              <div className="loading-state">Loading history...</div>
-            ) : validationHistory.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">📭</div>
-                <p>No validation history yet</p>
-                <small>Start validating emails to see them here</small>
-              </div>
-            ) : (
-              <>
-                <div className="history-stats">
-                  <span>📊 {validationHistory.length} validation{validationHistory.length !== 1 ? 's' : ''} in your history</span>
-                </div>
-                <div className="history-list">
-                  {validationHistory.map((item, index) => (
-                    <div key={item.id || index} className={`history-item ${item.valid ? 'valid' : 'invalid'}`}>
-                      <div className="history-main">
-                        <span className="history-icon">{item.valid ? '✓' : '✗'}</span>
-                        <div className="history-details">
-                          <div className="history-email">{item.email}</div>
-                          <div className="history-meta">
-                            {formatDate(item.validated_at)} • 
-                            Score: {item.confidence_score || 'N/A'}
-                            {item.risk_level && (
-                              <>
-                                {' • '}
-                                Risk: <span style={{ color: getRiskLevelColor(item.risk_level) }}>
-                                  {getRiskLevelLabel(item.risk_level)}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                      </div>
-                      {item.enrichment && (
-                        <div className="history-enrichment">
-                          {item.enrichment.domain_type && (
-                            <span className="enrichment-tag">{item.enrichment.domain_type}</span>
-                          )}
-                          {item.enrichment.country && (
-                            <span className="enrichment-tag">🌍 {item.enrichment.country}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Analytics Tab */}
-        {activeTab === 'analytics' && (
-          <div className="analytics-section">
-            <div className="analytics-header">
-              <h2>📊 Analytics Dashboard</h2>
-              <button className="refresh-btn" onClick={loadAnalytics} disabled={historyLoading}>
-                {historyLoading ? '⏳ Loading...' : '🔄 Refresh'}
-              </button>
-            </div>
-
-            {historyLoading ? (
-              <div className="loading-state">Loading analytics...</div>
-            ) : !analytics ? (
-              <div className="empty-state">
-                <div className="empty-icon">📊</div>
-                <p>No analytics data available</p>
-                <small>Validate some emails to see analytics</small>
-              </div>
-            ) : (
-              <>
-                <div className="analytics-grid">
-                  <div className="analytics-card">
-                    <div className="analytics-value">{analytics.total_validations || 0}</div>
-                    <div className="analytics-label">Total Validations</div>
-                  </div>
-                  <div className="analytics-card valid">
-                    <div className="analytics-value">{analytics.valid_count || 0}</div>
-                    <div className="analytics-label">Valid Emails</div>
-                  </div>
-                  <div className="analytics-card invalid">
-                    <div className="analytics-value">{analytics.invalid_count || 0}</div>
-                    <div className="analytics-label">Invalid Emails</div>
-                  </div>
-                  <div className="analytics-card">
-                    <div className="analytics-value">
-                      {analytics.total_validations > 0 
-                        ? Math.round((analytics.valid_count / analytics.total_validations) * 100) 
-                        : 0}%
-                    </div>
-                    <div className="analytics-label">Success Rate</div>
-                  </div>
-                </div>
-
-                {analytics.risk_distribution && (
-                  <div className="risk-distribution">
-                    <h3>Risk Distribution</h3>
-                    <div className="risk-bars">
-                      {Object.entries(analytics.risk_distribution).map(([level, count]) => (
-                        <div key={level} className="risk-bar-item">
-                          <div className="risk-bar-label">
-                            <span>{getRiskLevelLabel(level)}</span>
-                            <span>{count}</span>
-                          </div>
-                          <div className="risk-bar-container">
-                            <div 
-                              className="risk-bar-fill"
-                              style={{
-                                width: `${(count / analytics.total_validations) * 100}%`,
-                                backgroundColor: getRiskLevelColor(level)
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {analytics.domain_types && (
-                  <div className="domain-types">
-                    <h3>Domain Types</h3>
-                    <div className="domain-type-grid">
-                      {Object.entries(analytics.domain_types).map(([type, count]) => (
-                        <div key={type} className="domain-type-card">
-                          <div className="domain-type-count">{count}</div>
-                          <div className="domain-type-label">{type}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {analytics.top_domains && analytics.top_domains.length > 0 && (
-                  <div className="top-domains">
-                    <h3>Top Domains</h3>
-                    <div className="top-domains-list">
-                      {analytics.top_domains.map((item, idx) => (
-                        <div key={idx} className="top-domain-item">
-                          <span className="domain-rank">#{idx + 1}</span>
-                          <span className="domain-name">{item.domain}</span>
-                          <span className="domain-count">{item.count} emails</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-        </>
         )}
 
         <footer className="footer">
