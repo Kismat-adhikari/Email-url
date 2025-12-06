@@ -100,6 +100,8 @@ function App() {
       const response = await api.get('/api/records', {
         params: { limit: 100 }
       });
+      console.log('History response:', response.data);
+      console.log('Records:', response.data.records);
       setValidationHistory(response.data.records || []);
     } catch (err) {
       console.error('Failed to load history:', err);
