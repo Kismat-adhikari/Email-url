@@ -1,0 +1,92 @@
+===============================================================================
+EMAIL VALIDATOR - START COMMANDS
+===============================================================================
+
+OPTION 1: Run Both at Once (Recommended)
+-----------------------------------------
+Open TWO separate terminals/command prompts:
+
+Terminal 1 (Backend):
+python app_anon_history.py
+
+Terminal 2 (Frontend):
+cd frontend
+npm start
+
+
+OPTION 2: Use the Batch File (Windows Only)
+--------------------------------------------
+Double-click: START_ANON_HISTORY.bat
+
+
+OPTION 3: Manual Step-by-Step
+------------------------------
+1. Start Backend:
+   python app_anon_history.py
+
+2. Wait for "Debugger is active!" message
+
+3. Open new terminal and start Frontend:
+   cd frontend
+   npm start
+
+4. Wait for "Compiled successfully!" message
+
+5. Browser should auto-open to: http://localhost:3000
+
+
+===============================================================================
+WHAT SHOULD HAPPEN
+===============================================================================
+
+Backend:
+✓ Runs on http://localhost:5000
+✓ Shows "Email Validator API with Anonymous User History"
+✓ Shows available endpoints
+
+Frontend:
+✓ Runs on http://localhost:3000
+✓ Opens automatically in browser
+✓ Shows Email Validator dashboard
+
+
+===============================================================================
+TROUBLESHOOTING
+===============================================================================
+
+If Backend fails:
+- Check if port 5000 is already in use
+- Make sure Python is installed: python --version
+- Install requirements: pip install -r requirements.txt
+
+If Frontend fails:
+- Check if port 3000 is already in use
+- Make sure Node.js is installed: node --version
+- Install dependencies: cd frontend && npm install
+
+If browser doesn't open:
+- Manually go to: http://localhost:3000
+
+
+===============================================================================
+STOP COMMANDS
+===============================================================================
+
+To stop the servers:
+Press Ctrl+C in each terminal window
+
+
+===============================================================================
+QUICK TEST
+===============================================================================
+
+Once both are running:
+
+1. Go to http://localhost:3000
+2. Enter email: kismatadhikari62@gmail.com
+3. Select "Advanced" mode
+4. Click "Validate"
+5. Should show: Valid ✓ with confidence score
+
+
+===============================================================================

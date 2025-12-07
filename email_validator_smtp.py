@@ -7,7 +7,9 @@ Extends emailvalidator_unified.py with SMTP-level mailbox verification
 import smtplib
 import socket
 import dns.resolver
-from typing import Dict, Any, Optional, Tuple
+import random
+import time
+from typing import Dict, Any, Optional, Tuple, List
 from emailvalidator_unified import (
     validate_email, 
     validate_email_advanced,
@@ -17,20 +19,62 @@ from emailvalidator_unified import (
 )
 
 # SMTP Configuration
-SMTP_TIMEOUT = 10  # seconds
-SMTP_TEST_EMAIL = "test@example.com"  # Used for catch-all detection
+SMTP_TIMEOUT = 15  # seconds (increased for better reliability)
+SMTP_MAX_RETRIES = 2  # Number of retry attempts
+SMTP_RETRY_DELAY = 3  # Seconds between retries
+
+# Randomized sender emails to avoid blocking
+SMTP_SENDER_POOL = [
+    "verify@example.com",
+    "check@example.org",
+    "validate@example.net",
+    "test@verification.com",
+    "noreply@validator.com",
+    "system@emailcheck.com"
+]
 
 
-def verify_smtp_mailbox(email: str, timeout: int = SMTP_TIMEOUT) -> Dict[str, Any]:
+def _get_random_sender() -> str:
+    """Get a random sender email from the pool."""
+    return random.choice(SMTP_SENDER_POOL)
+
+
+def _get_mx_servers(domain: str) -> List[str]:
     """
-    Perform SMTP-level mailbox verification.
+    Get all MX servers for a domain, sorted by priority.
+    
+    Args:
+        domain: Domain name
+    
+    Returns:
+        List of MX server hostnames
+    """
+    try:
+        mx_records = dns.resolver.resolve(domain, 'MX')
+        # Sort by priority (lower number = higher priority)
+        sorted_mx = sorted(mx_records, key=lambda x: x.preference)
+        return [str(mx.exchange).rstrip('.') for mx in sorted_mx]
+    except Exception:
+        return []
+
+
+def verify_smtp_mailbox(email: str, timeout: int = SMTP_TIMEOUT, max_retries: int = SMTP_MAX_RETRIES) -> Dict[str, Any]:
+    """
+    Perform SMTP-level mailbox verification with retry logic and multiple MX servers.
     
     This function connects to the mail server and performs an SMTP handshake
     to verify if the mailbox actually exists without sending an email.
     
+    Improvements:
+    - Tries multiple MX servers (fallback)
+    - Randomized sender emails
+    - Retry logic with delays
+    - Better error handling
+    
     Args:
         email: Email address to verify
-        timeout: Connection timeout in seconds (default: 10)
+        timeout: Connection timeout in seconds (default: 15)
+        max_retries: Number of retry attempts (default: 2)
     
     Returns:
         Dictionary with:
@@ -39,6 +83,7 @@ def verify_smtp_mailbox(email: str, timeout: int = SMTP_TIMEOUT) -> Dict[str, An
             - smtp_message: str - SMTP response message
             - is_catch_all: bool - Whether domain accepts all emails
             - error: str or None - Error message if verification failed
+            - mx_server: str - MX server that was used
     
     Example:
         >>> result = verify_smtp_mailbox("user@gmail.com")
@@ -52,76 +97,94 @@ def verify_smtp_mailbox(email: str, timeout: int = SMTP_TIMEOUT) -> Dict[str, An
         'smtp_code': None,
         'smtp_message': '',
         'is_catch_all': False,
-        'error': None
+        'error': None,
+        'mx_server': None
     }
     
     try:
         # Extract domain
         domain = email.split('@')[1]
         
-        # Get MX records
-        try:
-            mx_records = dns.resolver.resolve(domain, 'MX')
-            mx_host = str(mx_records[0].exchange).rstrip('.')
-        except Exception as e:
-            result['error'] = f"No MX records found: {str(e)}"
+        # Get all MX servers
+        mx_servers = _get_mx_servers(domain)
+        if not mx_servers:
+            result['error'] = "No MX records found"
             return result
         
-        # Connect to SMTP server
-        try:
-            server = smtplib.SMTP(timeout=timeout)
-            server.set_debuglevel(0)
+        # Try each MX server with retries
+        for mx_index, mx_host in enumerate(mx_servers[:3]):  # Try up to 3 MX servers
+            for attempt in range(max_retries + 1):
+                try:
+                    # Add delay between retries (but not on first attempt)
+                    if attempt > 0:
+                        time.sleep(SMTP_RETRY_DELAY)
+                    
+                    # Get random sender email
+                    sender_email = _get_random_sender()
+                    
+                    # Connect to SMTP server
+                    server = smtplib.SMTP(timeout=timeout)
+                    server.set_debuglevel(0)
+                    
+                    # Connect
+                    code, message = server.connect(mx_host)
+                    if code != 220:
+                        raise Exception(f"Connection failed: {code}")
+                    
+                    # HELO with random hostname
+                    hostname = f"mail{random.randint(1, 999)}.validator.com"
+                    code, message = server.helo(hostname)
+                    if code != 250:
+                        raise Exception(f"HELO failed: {code}")
+                    
+                    # MAIL FROM with random sender
+                    code, message = server.mail(sender_email)
+                    if code != 250:
+                        raise Exception(f"MAIL FROM failed: {code}")
+                    
+                    # RCPT TO - verify actual email
+                    code, message = server.rcpt(email)
+                    result['smtp_code'] = code
+                    result['smtp_message'] = message.decode() if isinstance(message, bytes) else str(message)
+                    result['mx_server'] = mx_host
+                    
+                    if code == 250:
+                        result['smtp_valid'] = True
+                        # Check for catch-all domain
+                        result['is_catch_all'] = _detect_catch_all(server, domain)
+                        server.quit()
+                        return result  # Success!
+                    elif code == 550:
+                        result['smtp_valid'] = False
+                        result['error'] = "Mailbox does not exist"
+                        server.quit()
+                        return result  # Definitive answer
+                    else:
+                        result['smtp_valid'] = False
+                        result['error'] = f"Unexpected response: {code}"
+                    
+                    server.quit()
+                    
+                except smtplib.SMTPServerDisconnected:
+                    result['error'] = "Server disconnected"
+                    continue  # Try next attempt or MX server
+                except smtplib.SMTPConnectError:
+                    result['error'] = "Connection refused"
+                    continue
+                except socket.timeout:
+                    result['error'] = "Connection timeout"
+                    continue
+                except socket.error as e:
+                    result['error'] = f"Network error: {str(e)}"
+                    continue
+                except Exception as e:
+                    result['error'] = str(e)
+                    continue
             
-            # Connect
-            code, message = server.connect(mx_host)
-            if code != 220:
-                result['error'] = f"SMTP connection failed: {code} {message}"
-                return result
-            
-            # HELO
-            code, message = server.helo()
-            if code != 250:
-                result['error'] = f"HELO failed: {code} {message}"
-                server.quit()
-                return result
-            
-            # MAIL FROM
-            code, message = server.mail(SMTP_TEST_EMAIL)
-            if code != 250:
-                result['error'] = f"MAIL FROM failed: {code} {message}"
-                server.quit()
-                return result
-            
-            # RCPT TO - verify actual email
-            code, message = server.rcpt(email)
-            result['smtp_code'] = code
-            result['smtp_message'] = message.decode() if isinstance(message, bytes) else str(message)
-            
-            if code == 250:
-                result['smtp_valid'] = True
-            elif code == 550:
-                result['smtp_valid'] = False
-                result['error'] = "Mailbox does not exist"
-            else:
-                result['smtp_valid'] = False
-                result['error'] = f"Unexpected response: {code} {message}"
-            
-            # Check for catch-all domain
-            result['is_catch_all'] = _detect_catch_all(server, domain)
-            
-            # Close connection
-            server.quit()
-            
-        except smtplib.SMTPServerDisconnected:
-            result['error'] = "SMTP server disconnected"
-        except smtplib.SMTPConnectError as e:
-            result['error'] = f"SMTP connection error: {str(e)}"
-        except socket.timeout:
-            result['error'] = "SMTP connection timeout"
-        except socket.error as e:
-            result['error'] = f"Socket error: {str(e)}"
-        except Exception as e:
-            result['error'] = f"SMTP verification failed: {str(e)}"
+            # If we got here, all retries for this MX server failed
+            # Try next MX server
+            if mx_index < len(mx_servers) - 1:
+                time.sleep(1)  # Brief delay before trying next MX server
     
     except Exception as e:
         result['error'] = f"Verification error: {str(e)}"
@@ -143,8 +206,9 @@ def _detect_catch_all(server: smtplib.SMTP, domain: str) -> bool:
         bool: True if domain is catch-all, False otherwise
     """
     try:
-        # Test with obviously fake email
-        fake_email = f"nonexistent-test-{hash(domain)}@{domain}"
+        # Test with obviously fake email using random string
+        random_string = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=20))
+        fake_email = f"nonexistent{random_string}@{domain}"
         code, message = server.rcpt(fake_email)
         
         # If fake email is accepted (250), domain is catch-all
@@ -228,18 +292,28 @@ def validate_email_with_smtp(
         # Recalculate confidence score with SMTP data
         result['confidence_score'] = _calculate_confidence_with_smtp(result['checks'])
         
-        # Update validity based on SMTP
-        if not smtp_result['smtp_valid'] and smtp_result['error']:
-            result['valid'] = False
-            if 'Mailbox does not exist' in smtp_result['error']:
-                result['reason'] = 'Mailbox does not exist (SMTP verification failed)'
+        # SMTP is just additional info - don't override validity
+        # Email is still valid if syntax, DNS, and MX are good
+        # SMTP just tells us if mailbox exists (which often fails due to blocks)
+        
+        # Add SMTP info to reason
+        if not smtp_result['smtp_valid']:
+            smtp_note = 'SMTP verification failed'
+            if smtp_result['error']:
+                smtp_note += f': {smtp_result["error"]}'
+            
+            if result['reason']:
+                result['reason'] += f'; {smtp_note}'
+            else:
+                result['reason'] = smtp_note
         
         # Add catch-all warning
         if smtp_result['is_catch_all']:
+            catch_all_note = 'Catch-all domain (accepts all emails)'
             if result['reason']:
-                result['reason'] += '; Warning: Catch-all domain (accepts all emails)'
+                result['reason'] += f'; {catch_all_note}'
             else:
-                result['reason'] = 'Warning: Catch-all domain (accepts all emails)'
+                result['reason'] = catch_all_note
     else:
         result['smtp_details'] = None
         result['is_catch_all'] = False
@@ -280,9 +354,14 @@ def _calculate_confidence_with_smtp(checks: Dict[str, bool]) -> int:
     if checks.get('mx_records', False):
         score += 15
     
-    # SMTP verification (20 points)
+    # SMTP verification (10 points bonus if verified, but don't penalize if not)
+    # Many servers block SMTP verification, so we give bonus if it works
+    # but don't subtract if it doesn't
     if checks.get('smtp_verified', False):
-        score += 20
+        score += 10
+    elif checks.get('smtp_verified') is None:
+        # SMTP not attempted, give base score
+        score += 5
     
     # Not disposable (10 points)
     if not checks.get('is_disposable', True):

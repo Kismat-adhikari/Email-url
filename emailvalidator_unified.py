@@ -64,6 +64,29 @@ COMMON_DOMAINS = {
     'yahoo.co.uk', 'googlemail.com', 'hotmail.co.uk', 'outlook.co.uk'
 }
 
+# Common typo mappings for instant correction
+TYPO_CORRECTIONS = {
+    'gamil.com': 'gmail.com',
+    'gmial.com': 'gmail.com',
+    'gmai.com': 'gmail.com',
+    'gmil.com': 'gmail.com',
+    'gmaill.com': 'gmail.com',
+    'yahooo.com': 'yahoo.com',
+    'yaho.com': 'yahoo.com',
+    'hotnail.com': 'hotmail.com',
+    'hotmial.com': 'hotmail.com',
+    'hotmai.com': 'hotmail.com',
+    'hotmil.com': 'hotmail.com',
+    'outlok.com': 'outlook.com',
+    'outloo.com': 'outlook.com',
+    'outlookk.com': 'outlook.com',
+    'iclod.com': 'icloud.com',
+    'iclould.com': 'icloud.com',
+    'icoud.com': 'icloud.com',
+    'protonmai.com': 'protonmail.com',
+    'protonmal.com': 'protonmail.com',
+}
+
 ROLE_BASED_PREFIXES = {
     'admin', 'info', 'support', 'sales', 'contact', 'help', 'noreply',
     'postmaster', 'webmaster', 'hostmaster', 'abuse', 'security',
@@ -277,7 +300,7 @@ def _suggest_domain_correction(domain: str) -> Optional[str]:
     """
     Suggest domain correction if typo is detected.
     
-    Uses fuzzy matching to find similar domains from COMMON_DOMAINS.
+    First checks exact typo mappings, then uses fuzzy matching.
     
     Args:
         domain: Domain name to check for typos
@@ -288,6 +311,8 @@ def _suggest_domain_correction(domain: str) -> Optional[str]:
     Example:
         >>> _suggest_domain_correction("gmial.com")
         'gmail.com'
+        >>> _suggest_domain_correction("hotnail.com")
+        'hotmail.com'
         >>> _suggest_domain_correction("gmail.com")
         None
     """
@@ -297,6 +322,11 @@ def _suggest_domain_correction(domain: str) -> Optional[str]:
     if domain_lower in COMMON_DOMAINS:
         return None
     
+    # Check exact typo mappings first (instant correction)
+    if domain_lower in TYPO_CORRECTIONS:
+        return TYPO_CORRECTIONS[domain_lower]
+    
+    # Fuzzy matching for other typos
     best_match = None
     best_ratio = 0.0
     
@@ -486,8 +516,10 @@ def validate_email_advanced(
     result['confidence_score'] = _calculate_confidence_score(result['checks'])
     
     # Step 7: Determine overall validity
-    # Email is valid if syntax passes AND (DNS disabled OR DNS valid)
-    if check_dns:
+    # Email is valid if syntax passes AND DNS valid AND MX records exist
+    if check_dns and check_mx:
+        result['valid'] = syntax_valid and dns_valid and mx_valid
+    elif check_dns:
         result['valid'] = syntax_valid and dns_valid
     else:
         result['valid'] = syntax_valid
@@ -503,11 +535,13 @@ def validate_email_advanced(
             reasons.append('Warning: Disposable email domain')
         if result['checks']['is_role_based']:
             reasons.append('Warning: Role-based email address')
-        if check_mx and not result['checks']['mx_records']:
-            reasons.append('Warning: No MX records found')
     else:
         if not syntax_valid:
             reasons.append('Invalid syntax')
+        elif check_mx and not mx_valid:
+            reasons.append('Domain has no mail servers (no MX records)')
+            if result['suggestion']:
+                reasons.append(f"Did you mean {result['suggestion']}?")
         elif check_dns and not dns_valid:
             reasons.append('Domain does not exist')
             if result['suggestion']:

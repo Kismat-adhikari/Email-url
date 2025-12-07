@@ -7,26 +7,70 @@ Private history WITHOUT requiring user login
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from emailvalidator_unified import validate_email_advanced, validate_batch
+from email_validator_smtp import validate_email_with_smtp
 from supabase_storage import get_storage
-from risk_scoring import RiskScorer
-from email_enrichment import EmailEnricher
+from email_enrichment import EmailEnrichment
+from pattern_analysis import calculate_deliverability_score, analyze_email_pattern
+from spam_trap_detector import comprehensive_risk_check
+from bounce_tracker import check_bounce_risk
+from email_status import determine_email_status
 import time
 import os
+import re
+import logging
+from functools import wraps
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('email_validator.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='frontend/build', static_url_path='')
 CORS(app)
 
+# Rate limiting configuration
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 100  # requests per window
+rate_limit_store = defaultdict(list)
+
 # Initialize components
-risk_scorer = RiskScorer()
-enricher = EmailEnricher()
+enricher = EmailEnrichment()
 
 # ============================================================================
-# MIDDLEWARE - Extract Anonymous User ID
+# MIDDLEWARE - Extract Anonymous User ID & Rate Limiting
 # ============================================================================
+
+def validate_uuid_format(user_id: str) -> bool:
+    """Validate UUID format (UUIDv4)."""
+    uuid_pattern = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        re.IGNORECASE
+    )
+    return bool(uuid_pattern.match(user_id))
+
+
+def validate_email_format(email: str) -> bool:
+    """Basic email format validation."""
+    if not email or not isinstance(email, str):
+        return False
+    if len(email) > 254 or len(email) < 3:
+        return False
+    if '@' not in email:
+        return False
+    return True
+
 
 def get_anon_user_id():
     """
-    Extract anonymous user ID from request headers.
+    Extract and validate anonymous user ID from request headers.
     
     Returns:
         str: Anonymous user ID
@@ -39,11 +83,47 @@ def get_anon_user_id():
     if not anon_user_id:
         raise ValueError('Missing X-User-ID header. Anonymous user ID is required.')
     
-    # Basic validation - should be a UUID-like string
-    if len(anon_user_id) < 10 or len(anon_user_id) > 50:
-        raise ValueError('Invalid X-User-ID format')
+    # Validate UUID format
+    if not validate_uuid_format(anon_user_id):
+        raise ValueError('Invalid X-User-ID format. Must be a valid UUIDv4.')
     
     return anon_user_id
+
+
+def get_client_ip():
+    """Get client IP address for rate limiting."""
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+def rate_limit(f):
+    """Rate limiting decorator."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        client_ip = get_client_ip()
+        now = datetime.now()
+        
+        # Clean old entries
+        rate_limit_store[client_ip] = [
+            timestamp for timestamp in rate_limit_store[client_ip]
+            if now - timestamp < timedelta(seconds=RATE_LIMIT_WINDOW)
+        ]
+        
+        # Check rate limit
+        if len(rate_limit_store[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
+            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+            return jsonify({
+                'error': 'Rate limit exceeded',
+                'message': f'Maximum {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW} seconds'
+            }), 429
+        
+        # Add current request
+        rate_limit_store[client_ip].append(now)
+        
+        return f(*args, **kwargs)
+    
+    return decorated_function
 
 
 # ============================================================================
@@ -92,6 +172,7 @@ def health():
 
 
 @app.route('/api/validate', methods=['POST'])
+@rate_limit
 def validate_email():
     """
     Validate single email with anonymous user tracking.
@@ -102,7 +183,8 @@ def validate_email():
     Request body:
         {
             "email": "user@example.com",
-            "advanced": true
+            "advanced": true,
+            "enable_smtp": false
         }
     
     Response:
@@ -117,11 +199,14 @@ def validate_email():
             "processing_time": 0.123
         }
     """
+    start_time = time.time()
+    
     try:
         # Extract anonymous user ID
         try:
             anon_user_id = get_anon_user_id()
         except ValueError as e:
+            logger.warning(f"Authentication failed: {str(e)}")
             return jsonify({
                 'error': 'Authentication required',
                 'message': str(e)
@@ -130,6 +215,7 @@ def validate_email():
         data = request.get_json()
         
         if not data or 'email' not in data:
+            logger.warning(f"Missing email parameter from user {anon_user_id}")
             return jsonify({
                 'error': 'Missing email parameter',
                 'message': 'Please provide an email address'
@@ -138,16 +224,19 @@ def validate_email():
         email = data['email']
         advanced = data.get('advanced', True)
         
-        if not email or not isinstance(email, str):
+        # Input validation
+        if not validate_email_format(email):
+            logger.warning(f"Invalid email format: {email}")
             return jsonify({
-                'error': 'Invalid email parameter',
-                'message': 'Email must be a non-empty string'
+                'error': 'Invalid email format',
+                'message': 'Email must be a valid format'
             }), 400
         
-        # Validate email
-        start_time = time.time()
+        logger.info(f"Validating email: {email} (user: {anon_user_id}, advanced: {advanced})")
         
+        # Validate email
         if advanced:
+            # Advanced without SMTP
             result = validate_email_advanced(
                 email,
                 check_dns=True,
@@ -157,37 +246,82 @@ def validate_email():
                 check_role_based=True
             )
         else:
+            # Basic validation
             from emailvalidator_unified import validate_email as validate_basic
             is_valid = validate_basic(email)
             result = {
                 'email': email,
                 'valid': is_valid,
-                'confidence_score': 100 if is_valid else 0
+                'confidence_score': 100 if is_valid else 0,
+                'checks': {'syntax': is_valid}
             }
         
         processing_time = time.time() - start_time
         result['processing_time'] = round(processing_time, 4)
         
-        # Assess risk
+        # Pattern analysis
         try:
-            risk_assessment = risk_scorer.calculate_risk_score({
-                'email': email,
-                'bounce_count': 0,
-                'confidence_score': result.get('confidence_score', 0),
-                **(result.get('checks', {}))
-            })
-            result['risk_assessment'] = risk_assessment
-            result['risk_score'] = risk_assessment['risk_score']
-            result['risk_level'] = risk_assessment['risk_level']
-            result['risk_factors'] = risk_assessment['risk_factors']
+            pattern_analysis = analyze_email_pattern(email)
+            result['pattern_analysis'] = pattern_analysis
         except Exception as e:
-            result['risk_assessment'] = {'error': str(e)}
+            logger.error(f"Pattern analysis failed: {str(e)}")
+        
+        # Spam trap & risk detection
+        try:
+            domain = email.split('@')[1]
+            risk_check = comprehensive_risk_check(email, domain)
+            result['risk_check'] = risk_check
+            logger.info(f"Risk check for {email}: {risk_check['overall_risk']}")
+            
+            # Override validity if critical risk detected
+            if risk_check['overall_risk'] == 'critical':
+                result['valid'] = False
+                logger.warning(f"CRITICAL RISK detected for {email}: {risk_check['recommendation']}")
+                if result.get('reason'):
+                    result['reason'] += f"; {risk_check['recommendation']}"
+                else:
+                    result['reason'] = risk_check['recommendation']
+        except Exception as e:
+            logger.error(f"Risk check failed for {email}: {str(e)}")
+        
+        # Bounce history check
+        try:
+            bounce_risk = check_bounce_risk(email)
+            result['bounce_check'] = bounce_risk
+            
+            # Add bounce warning if exists
+            if bounce_risk['bounce_history']['has_bounced']:
+                logger.info(f"Bounce history for {email}: {bounce_risk['bounce_history']['total_bounces']} bounces")
+                if bounce_risk['risk_level'] in ['critical', 'high']:
+                    result['valid'] = False
+                    if result.get('reason'):
+                        result['reason'] += f"; {bounce_risk['warning']}"
+                    else:
+                        result['reason'] = bounce_risk['warning']
+        except Exception as e:
+            logger.error(f"Bounce check failed for {email}: {str(e)}")
+        
+        # Calculate deliverability score
+        try:
+            deliverability = calculate_deliverability_score(email, result)
+            result['deliverability'] = deliverability
+        except Exception as e:
+            logger.error(f"Deliverability calculation failed: {str(e)}")
+        
+        # Determine email status
+        try:
+            status_info = determine_email_status(result)
+            result['status'] = status_info
+            logger.info(f"Email status for {email}: {status_info['status']}")
+        except Exception as e:
+            logger.error(f"Status determination failed: {str(e)}")
         
         # Enrich email data
         try:
-            enrichment = enricher.enrich_email(email)
+            enrichment = enricher.enrich_email(email, validation_data=result)
             result['enrichment'] = enrichment
         except Exception as e:
+            logger.error(f"Email enrichment failed: {str(e)}")
             result['enrichment'] = {'error': str(e)}
         
         # Store in database with anonymous user ID
@@ -199,19 +333,23 @@ def validate_email():
                 'valid': result['valid'],
                 'confidence_score': result.get('confidence_score', 0),
                 'checks': result.get('checks', {}),
+                'smtp_details': result.get('smtp_details'),
                 'is_disposable': result.get('checks', {}).get('is_disposable', False),
                 'is_role_based': result.get('checks', {}).get('is_role_based', False),
                 'is_catch_all': result.get('is_catch_all', False)
             })
             result['record_id'] = record['id']
             result['stored'] = True
+            logger.info(f"Validation stored: {email} (valid: {result['valid']}, score: {result.get('confidence_score')})")
         except Exception as e:
+            logger.error(f"Storage failed: {str(e)}")
             result['stored'] = False
             result['storage_error'] = str(e)
         
         return jsonify(result)
         
     except Exception as e:
+        logger.error(f"Validation failed: {str(e)}", exc_info=True)
         return jsonify({
             'error': 'Validation failed',
             'message': str(e)
@@ -219,6 +357,7 @@ def validate_email():
 
 
 @app.route('/api/validate/batch', methods=['POST'])
+@rate_limit
 def validate_batch_endpoint():
     """
     Validate multiple emails with anonymous user tracking.
@@ -241,11 +380,14 @@ def validate_batch_endpoint():
             "processing_time": 0.123
         }
     """
+    start_time = time.time()
+    
     try:
         # Extract anonymous user ID
         try:
             anon_user_id = get_anon_user_id()
         except ValueError as e:
+            logger.warning(f"Batch validation auth failed: {str(e)}")
             return jsonify({
                 'error': 'Authentication required',
                 'message': str(e)
@@ -254,6 +396,7 @@ def validate_batch_endpoint():
         data = request.get_json()
         
         if not data or 'emails' not in data:
+            logger.warning(f"Missing emails parameter from user {anon_user_id}")
             return jsonify({
                 'error': 'Missing emails parameter',
                 'message': 'Please provide an array of email addresses'
@@ -262,7 +405,9 @@ def validate_batch_endpoint():
         emails = data['emails']
         advanced = data.get('advanced', True)
         
+        # Input validation
         if not isinstance(emails, list):
+            logger.warning(f"Invalid emails parameter type from user {anon_user_id}")
             return jsonify({
                 'error': 'Invalid emails parameter',
                 'message': 'emails must be an array'
@@ -275,18 +420,82 @@ def validate_batch_endpoint():
             }), 400
         
         if len(emails) > 1000:
+            logger.warning(f"Too many emails ({len(emails)}) from user {anon_user_id}")
             return jsonify({
                 'error': 'Too many emails',
                 'message': 'Maximum 1,000 emails per request'
             }), 400
         
+        # Validate each email format
+        invalid_formats = []
+        for email in emails:
+            if not validate_email_format(email):
+                invalid_formats.append(email)
+        
+        if invalid_formats:
+            logger.warning(f"Invalid email formats in batch: {invalid_formats[:5]}")
+            return jsonify({
+                'error': 'Invalid email formats',
+                'message': f'{len(invalid_formats)} emails have invalid format',
+                'invalid_emails': invalid_formats[:10]  # Return first 10
+            }), 400
+        
+        logger.info(f"Batch validation started: {len(emails)} emails (user: {anon_user_id}, advanced: {advanced})")
+        
         # Validate batch
-        start_time = time.time()
         results = validate_batch(emails, advanced=advanced)
+        
+        # Add risk checks and pattern analysis to each result
+        for result in results:
+            try:
+                email = result['email']
+                
+                # Pattern analysis
+                pattern_analysis = analyze_email_pattern(email)
+                result['pattern_analysis'] = pattern_analysis
+                
+                # Spam trap & risk detection
+                if '@' in email:
+                    domain = email.split('@')[1]
+                    risk_check = comprehensive_risk_check(email, domain)
+                    result['risk_check'] = risk_check
+                    
+                    # Override validity if critical risk detected
+                    if risk_check['overall_risk'] == 'critical':
+                        result['valid'] = False
+                        if result.get('reason'):
+                            result['reason'] += f"; {risk_check['recommendation']}"
+                        else:
+                            result['reason'] = risk_check['recommendation']
+                
+                # Bounce history check
+                bounce_risk = check_bounce_risk(email)
+                result['bounce_check'] = bounce_risk
+                
+                if bounce_risk['bounce_history']['has_bounced']:
+                    if bounce_risk['risk_level'] in ['critical', 'high']:
+                        result['valid'] = False
+                        if result.get('reason'):
+                            result['reason'] += f"; {bounce_risk['warning']}"
+                        else:
+                            result['reason'] = bounce_risk['warning']
+                
+                # Calculate deliverability score
+                deliverability = calculate_deliverability_score(email, result)
+                result['deliverability'] = deliverability
+                
+                # Determine email status
+                status_info = determine_email_status(result)
+                result['status'] = status_info
+                
+            except Exception as e:
+                logger.error(f"Failed to add risk checks for {result.get('email')}: {str(e)}")
+        
         processing_time = time.time() - start_time
         
         # Store results with anonymous user ID
         storage = get_storage()
+        stored_count = 0
         for result in results:
             try:
                 record = storage.create_record({
@@ -297,10 +506,14 @@ def validate_batch_endpoint():
                     'checks': result.get('checks', {'syntax': result['valid']})
                 })
                 result['record_id'] = record['id']
+                stored_count += 1
             except Exception as e:
+                logger.error(f"Failed to store batch result for {result['email']}: {str(e)}")
                 result['storage_error'] = str(e)
         
         valid_count = sum(1 for r in results if r.get('valid', False))
+        
+        logger.info(f"Batch validation completed: {valid_count}/{len(results)} valid, {stored_count} stored, {processing_time:.2f}s")
         
         return jsonify({
             'total': len(results),
@@ -311,6 +524,7 @@ def validate_batch_endpoint():
         })
         
     except Exception as e:
+        logger.error(f"Batch validation failed: {str(e)}", exc_info=True)
         return jsonify({
             'error': 'Batch validation failed',
             'message': str(e)
