@@ -3,7 +3,7 @@ services:
     name: email-validator
     env: python
     buildCommand: "pip install -r requirements.txt && cd frontend && npm install && npm run build"
-    startCommand: "gunicorn app_anon_history:app"
+    startCommand: "gunicorn --worker-class gevent --workers 1 --timeout 300 app_anon_history:app"
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
