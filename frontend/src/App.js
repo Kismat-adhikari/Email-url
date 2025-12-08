@@ -13,8 +13,8 @@ import {
 
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : ((r & 0x3) | 0x8);
     return v.toString(16);
   });
 }
@@ -45,7 +45,6 @@ function App() {
   const [uploadMode, setUploadMode] = useState('text');
   const [selectedFile, setSelectedFile] = useState(null);
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
-  const [duplicateInfo, setDuplicateInfo] = useState(null);
   const [showDomainStats, setShowDomainStats] = useState(true);
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0, eta: 0, speed: 0 });
   const [shareLink, setShareLink] = useState(null);
@@ -369,8 +368,7 @@ function App() {
     }
 
     // Detect duplicates for display
-    const dupInfo = detectDuplicates(emails);
-    setDuplicateInfo(dupInfo);
+    detectDuplicates(emails);
 
     const startTime = Date.now();
     setLoading(true);
@@ -414,13 +412,7 @@ function App() {
             const data = JSON.parse(line.slice(6));
             
             if (data.type === 'start') {
-              // Update duplicate info from server
-              if (data.duplicates_removed > 0) {
-                setDuplicateInfo(prev => ({
-                  ...prev,
-                  removed: data.duplicates_removed
-                }));
-              }
+              // Duplicate info is handled by backend
             } else if (data.type === 'result') {
               // Calculate ETA and speed
               const elapsed = (Date.now() - startTime) / 1000; // seconds
