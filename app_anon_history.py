@@ -531,6 +531,212 @@ def validate_batch_endpoint():
         }), 500
 
 
+@app.route('/api/validate/batch/stream', methods=['POST'])
+@rate_limit
+def validate_batch_stream():
+    """
+    Stream batch validation results in real-time.
+    Each email is validated and sent immediately as it completes.
+    
+    Headers:
+        X-User-ID: Anonymous user ID (required)
+    
+    Request body:
+        {
+            "emails": ["user1@example.com", "user2@test.com"],
+            "advanced": true
+        }
+    
+    Response: Server-Sent Events (SSE) stream
+        Each event contains one validation result as JSON
+    """
+    import json
+    
+    try:
+        # Extract anonymous user ID
+        try:
+            anon_user_id = get_anon_user_id()
+        except ValueError as e:
+            logger.warning(f"Stream validation auth failed: {str(e)}")
+            return jsonify({
+                'error': 'Authentication required',
+                'message': str(e)
+            }), 400
+        
+        data = request.get_json()
+        
+        if not data or 'emails' not in data:
+            return jsonify({
+                'error': 'Missing required parameter',
+                'message': 'emails parameter is required'
+            }), 400
+        
+        emails = data.get('emails', [])
+        advanced = data.get('advanced', True)
+        
+        if not isinstance(emails, list):
+            return jsonify({
+                'error': 'Invalid parameter type',
+                'message': 'emails must be an array'
+            }), 400
+        
+        if len(emails) == 0:
+            return jsonify({
+                'error': 'Empty email list',
+                'message': 'At least one email is required'
+            }), 400
+        
+        if len(emails) > 1000:
+            return jsonify({
+                'error': 'Too many emails',
+                'message': 'Maximum 1000 emails per batch'
+            }), 400
+        
+        def generate():
+            """Generator function that yields validation results one by one."""
+            storage = get_storage()
+            total = len(emails)
+            valid_count = 0
+            invalid_count = 0
+            
+            # Send initial progress event
+            yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
+            
+            for index, email in enumerate(emails):
+                try:
+                    # Clean email
+                    email = email.strip()
+                    
+                    # Validate email format
+                    if not validate_email_format(email):
+                        result = {
+                            'email': email,
+                            'valid': False,
+                            'reason': 'Invalid email format',
+                            'checks': {'syntax': False}
+                        }
+                    else:
+                        # Perform validation
+                        if advanced:
+                            try:
+                                result = validate_email_advanced(email)
+                            except Exception as e:
+                                logger.error(f"Advanced validation error for {email}: {str(e)}")
+                                result = {
+                                    'email': email,
+                                    'valid': False,
+                                    'reason': f'Validation error: {str(e)}',
+                                    'checks': {'syntax': True}
+                                }
+                            
+                            # Add enrichment
+                            enrichment_data = enricher.enrich_email(email)
+                            if enrichment_data:
+                                result['enrichment'] = enrichment_data
+                            
+                            # Add deliverability score
+                            deliverability = calculate_deliverability_score(email, result)
+                            result['deliverability'] = deliverability
+                            
+                            # Add pattern analysis
+                            pattern = analyze_email_pattern(email)
+                            if pattern:
+                                result['pattern_analysis'] = pattern
+                            
+                            # Add risk check
+                            if '@' in email:
+                                domain = email.split('@')[1]
+                                risk = comprehensive_risk_check(email, domain)
+                                result['risk_check'] = risk
+                            
+                            # Add bounce check
+                            bounce = check_bounce_risk(email)
+                            result['bounce_check'] = bounce
+                            
+                            # Add status
+                            status = determine_email_status(result)
+                            result['status'] = status
+                        else:
+                            # Basic validation
+                            result = {'email': email, 'valid': validate_email_format(email)}
+                        
+                        # Store in database
+                        if storage:
+                            try:
+                                storage.store_validation(anon_user_id, result)
+                            except Exception as e:
+                                logger.error(f"Failed to store validation: {str(e)}")
+                    
+                    # Update counters
+                    if result.get('valid'):
+                        valid_count += 1
+                    else:
+                        invalid_count += 1
+                    
+                    # Send result event
+                    event_data = {
+                        'type': 'result',
+                        'index': index,
+                        'total': total,
+                        'result': result,
+                        'progress': {
+                            'current': index + 1,
+                            'total': total,
+                            'valid': valid_count,
+                            'invalid': invalid_count,
+                            'percentage': int(((index + 1) / total) * 100)
+                        }
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"Error validating {email}: {str(e)}")
+                    error_result = {
+                        'type': 'result',
+                        'index': index,
+                        'total': total,
+                        'result': {
+                            'email': email,
+                            'valid': False,
+                            'reason': f'Validation error: {str(e)}'
+                        },
+                        'progress': {
+                            'current': index + 1,
+                            'total': total,
+                            'valid': valid_count,
+                            'invalid': invalid_count,
+                            'percentage': int(((index + 1) / total) * 100)
+                        }
+                    }
+                    yield f"data: {json.dumps(error_result)}\n\n"
+            
+            # Send completion event
+            completion_data = {
+                'type': 'complete',
+                'total': total,
+                'valid_count': valid_count,
+                'invalid_count': invalid_count
+            }
+            yield f"data: {json.dumps(completion_data)}\n\n"
+        
+        return app.response_class(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Stream validation failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Stream validation failed',
+            'message': str(e)
+        }), 500
+
+
 @app.route('/api/history', methods=['GET'])
 def get_history():
     """

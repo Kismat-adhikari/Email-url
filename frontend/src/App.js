@@ -216,23 +216,71 @@ function App() {
 
     setLoading(true);
     setError(null);
-    setBatchResults(null);
+    setBatchResults({ results: [], total: emails.length, valid_count: 0, invalid_count: 0 });
 
     try {
-      const response = await api.post('/api/validate/batch', {
-        emails,
-        advanced: mode === 'advanced'
+      const response = await fetch(`${API_URL}/api/validate/batch/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': anonUserId
+        },
+        body: JSON.stringify({
+          emails,
+          advanced: mode === 'advanced'
+        })
       });
-      setBatchResults(response.data);
+
+      if (!response.ok) {
+        throw new Error('Stream validation failed');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.type === 'result') {
+              // Add result to the list in real-time
+              setBatchResults(prev => ({
+                ...prev,
+                results: [...prev.results, data.result],
+                valid_count: data.progress.valid,
+                invalid_count: data.progress.invalid,
+                total: data.progress.total
+              }));
+            } else if (data.type === 'complete') {
+              // Final update
+              setBatchResults(prev => ({
+                ...prev,
+                valid_count: data.valid_count,
+                invalid_count: data.invalid_count,
+                total: data.total,
+                processing_time: 0
+              }));
+            }
+          }
+        }
+      }
       
       // Refresh history if on history tab
       if (historyMode) {
         loadHistory();
       }
     } catch (err) {
-      const errorMsg = err.response?.data?.message 
-        || err.message 
-        || 'Batch validation failed';
+      const errorMsg = err.message || 'Batch validation failed';
       setError(errorMsg);
     } finally {
       setLoading(false);
@@ -843,64 +891,134 @@ function App() {
 
             <div className="batch-list">
               {batchResults.results.map((item, index) => (
-                <div key={index} className={`batch-item ${item.valid ? 'valid' : 'invalid'} ${mode === 'advanced' ? 'detailed' : ''}`}>
-                  <div className="batch-item-header">
-                    <span className="batch-icon">{item.valid ? '✓' : '✗'}</span>
-                    <span className="batch-email">{item.email}</span>
-                    {item.status && (
-                      <span className={`batch-status-badge status-${item.status.color}`}>
-                        {item.status.status}
-                      </span>
-                    )}
-                    {mode === 'advanced' && item.confidence_score !== undefined && (
-                      <span className="batch-score">
-                        {item.confidence_score}/100
-                      </span>
-                    )}
-                  </div>
-                  
-                  {mode === 'advanced' && item.checks && (
-                    <div className="batch-item-details">
-                      <div className="batch-checks">
-                        {item.checks.syntax !== undefined && (
-                          <span className={`mini-check ${item.checks.syntax ? 'pass' : 'fail'}`}>
-                            {item.checks.syntax ? '✓' : '✗'} Syntax
-                          </span>
-                        )}
-                        {item.checks.dns_valid !== undefined && (
-                          <span className={`mini-check ${item.checks.dns_valid ? 'pass' : 'fail'}`}>
-                            {item.checks.dns_valid ? '✓' : '✗'} DNS
-                          </span>
-                        )}
-                        {item.checks.mx_records !== undefined && (
-                          <span className={`mini-check ${item.checks.mx_records ? 'pass' : 'fail'}`}>
-                            {item.checks.mx_records ? '✓' : '✗'} MX
-                          </span>
-                        )}
-                        {item.checks.is_disposable !== undefined && item.checks.is_disposable && (
-                          <span className="mini-check warn">⚠ Disposable</span>
-                        )}
-                        {item.checks.is_role_based !== undefined && item.checks.is_role_based && (
-                          <span className="mini-check warn">⚠ Role-based</span>
-                        )}
-                      </div>
-                      {item.suggestion && (
-                        <div className="batch-suggestion">
-                          💡 Did you mean: <strong>{item.suggestion}</strong>
-                        </div>
-                      )}
-                      {item.reason && (
-                        <div className="batch-reason">
-                          {item.reason}
-                        </div>
+                <div key={index} className={`result-box ${item.valid ? 'valid' : 'invalid'}`} style={{marginBottom: '1.5rem'}}>
+                  <div className="result-header">
+                    <div className="result-title-row">
+                      <h3 style={{fontSize: '1.2rem', margin: 0}}>{item.valid ? 'Valid Email' : 'Invalid Email'}</h3>
+                      {item.status && (
+                        <span className={`status-badge status-${item.status.color}`}>
+                          {item.status.status.toUpperCase()}
+                        </span>
                       )}
                     </div>
+                    <span className="email-display">{item.email}</span>
+                    {item.status && item.status.description && (
+                      <span className="status-description">{item.status.description}</span>
+                    )}
+                  </div>
+
+                  {mode === 'advanced' && item.checks && (
+                    <>
+                      <div className="confidence-section">
+                        <div className="confidence-label">Confidence Score</div>
+                        <div className="confidence-bar-container">
+                          <div
+                            className="confidence-bar"
+                            style={{
+                              width: `${item.confidence_score || 0}%`,
+                              backgroundColor: getConfidenceColor(item.confidence_score || 0)
+                            }}
+                          />
+                        </div>
+                        <div className="confidence-value">
+                          {item.confidence_score || 0}/100 - {getConfidenceLabel(item.confidence_score || 0)}
+                        </div>
+                      </div>
+
+                      {item.deliverability && (
+                        <div className="deliverability-section">
+                          <div className="deliverability-header">
+                            <span className="deliverability-label">Deliverability Score</span>
+                            <span 
+                              className="deliverability-grade"
+                              style={{ 
+                                backgroundColor: item.deliverability.deliverability_score >= 80 ? '#10b981' : 
+                                               item.deliverability.deliverability_score >= 60 ? '#f59e0b' : '#ef4444'
+                              }}
+                            >
+                              Grade: {item.deliverability.deliverability_grade}
+                            </span>
+                          </div>
+                          <div className="deliverability-score">{item.deliverability.deliverability_score}/100</div>
+                          <div className="deliverability-recommendation">
+                            {item.deliverability.recommendation}
+                          </div>
+                        </div>
+                      )}
+
+                      {item.risk_check && item.risk_check.overall_risk !== 'low' && (
+                        <div className={`risk-warning-section ${item.risk_check.overall_risk}`}>
+                          <h4 style={{margin: '0 0 0.5rem 0'}}>Risk Detection</h4>
+                          <div className="risk-warning-content">
+                            <div className="risk-level">
+                              Risk Level: <strong>{item.risk_check.overall_risk.toUpperCase()}</strong>
+                            </div>
+                            <div className="risk-recommendation">
+                              {item.risk_check.recommendation}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {item.bounce_check && item.bounce_check.bounce_history.has_bounced && (
+                        <div className={`bounce-warning-section ${item.bounce_check.risk_level}`}>
+                          <h4 style={{margin: '0 0 0.5rem 0'}}>Bounce History</h4>
+                          <div className="bounce-warning-content">
+                            <div className="bounce-stats">
+                              <div className="bounce-stat">
+                                <strong>{item.bounce_check.bounce_history.total_bounces}</strong>
+                                <span>Total Bounces</span>
+                              </div>
+                              <div className="bounce-stat">
+                                <strong>{item.bounce_check.bounce_history.hard_bounces}</strong>
+                                <span>Hard Bounces</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="checks-grid">
+                        <div className={`check-item ${item.checks.syntax ? 'pass' : 'fail'}`}>
+                          <span className="check-icon">{item.checks.syntax ? '✓' : '✗'}</span>
+                          <span>Syntax</span>
+                        </div>
+                        <div className={`check-item ${item.checks.dns_valid ? 'pass' : 'fail'}`}>
+                          <span className="check-icon">{item.checks.dns_valid ? '✓' : '✗'}</span>
+                          <span>DNS</span>
+                        </div>
+                        <div className={`check-item ${item.checks.mx_records ? 'pass' : 'fail'}`}>
+                          <span className="check-icon">{item.checks.mx_records ? '✓' : '✗'}</span>
+                          <span>MX Records</span>
+                        </div>
+                        <div className={`check-item ${!item.checks.is_disposable ? 'pass' : 'warn'}`}>
+                          <span className="check-icon">{!item.checks.is_disposable ? '✓' : '⚠'}</span>
+                          <span>Not Disposable</span>
+                        </div>
+                        <div className={`check-item ${!item.checks.is_role_based ? 'pass' : 'warn'}`}>
+                          <span className="check-icon">{!item.checks.is_role_based ? '✓' : '⚠'}</span>
+                          <span>Not Role-Based</span>
+                        </div>
+                      </div>
+
+                      {item.suggestion && (
+                        <div className="suggestion-box">
+                          <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
+                        </div>
+                      )}
+
+                      {item.reason && (
+                        <div className="reason-box">
+                          <strong>Details:</strong> {item.reason}
+                        </div>
+                      )}
+                    </>
                   )}
-                  
+
                   {mode === 'basic' && item.suggestion && (
-                    <span className="batch-suggestion">
-                      → {item.suggestion}
-                    </span>
+                    <div className="suggestion-box">
+                      <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
+                    </div>
                   )}
                 </div>
               ))}
