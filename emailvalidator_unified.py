@@ -88,9 +88,10 @@ TYPO_CORRECTIONS = {
 }
 
 ROLE_BASED_PREFIXES = {
-    'admin', 'info', 'support', 'sales', 'contact', 'help', 'noreply',
+    'admin', 'info', 'support', 'sales', 'contact', 'help', 'noreply', 'no-reply',
     'postmaster', 'webmaster', 'hostmaster', 'abuse', 'security',
-    'marketing', 'billing', 'service', 'feedback', 'enquiry', 'inquiry'
+    'marketing', 'billing', 'service', 'feedback', 'enquiry', 'inquiry',
+    'do-not-reply', 'donotreply'
 }
 
 # Typo detection threshold (0.0 to 1.0)

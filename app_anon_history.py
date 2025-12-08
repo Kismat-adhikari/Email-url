@@ -45,6 +45,115 @@ rate_limit_store = defaultdict(list)
 enricher = EmailEnrichment()
 
 # ============================================================================
+# DOMAIN STATISTICS HELPER
+# ============================================================================
+
+
+def calculate_domain_stats(results):
+    """
+    Calculate comprehensive domain statistics from validation results.
+    
+    Args:
+        results: List of validation result dictionaries
+        
+    Returns:
+        Dictionary containing domain statistics
+    """
+    from collections import Counter
+    
+    domain_counts = Counter()
+    domain_valid = defaultdict(lambda: {'valid': 0, 'invalid': 0})
+    domain_risks = defaultdict(lambda: {'low': 0, 'medium': 0, 'high': 0, 'critical': 0})
+    provider_types = {
+        'free': 0,
+        'business': 0,
+        'disposable': 0,
+        'educational': 0,
+        'government': 0,
+        'unknown': 0
+    }
+    
+    # Free email providers
+    free_providers = {
+        'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 
+        'aol.com', 'icloud.com', 'mail.com', 'protonmail.com',
+        'yandex.com', 'zoho.com', 'gmx.com', 'live.com'
+    }
+    
+    for result in results:
+        email = result.get('email', '')
+        if '@' not in email:
+            continue
+            
+        domain = email.split('@')[1].lower()
+        domain_counts[domain] += 1
+        
+        # Track validity by domain
+        if result.get('valid'):
+            domain_valid[domain]['valid'] += 1
+        else:
+            domain_valid[domain]['invalid'] += 1
+        
+        # Track risk levels by domain (if available)
+        if result.get('risk_check'):
+            risk_level = result['risk_check'].get('overall_risk', 'low')
+            domain_risks[domain][risk_level] += 1
+        
+        # Categorize provider type
+        checks = result.get('checks', {})
+        if checks.get('is_disposable'):
+            provider_types['disposable'] += 1
+        elif domain.endswith('.edu'):
+            provider_types['educational'] += 1
+        elif domain.endswith('.gov'):
+            provider_types['government'] += 1
+        elif domain in free_providers:
+            provider_types['free'] += 1
+        elif '.' in domain:
+            provider_types['business'] += 1
+        else:
+            provider_types['unknown'] += 1
+    
+    # Calculate top domains
+    top_domains = []
+    total_emails = len(results)
+    for domain, count in domain_counts.most_common(10):
+        valid_count = domain_valid[domain]['valid']
+        invalid_count = domain_valid[domain]['invalid']
+        validity_rate = (valid_count / (valid_count + invalid_count) * 100) if (valid_count + invalid_count) > 0 else 0
+        
+        # Get risk distribution
+        risks = domain_risks[domain]
+        high_risk_count = risks['high'] + risks['critical']
+        
+        top_domains.append({
+            'domain': domain,
+            'count': count,
+            'percentage': round(count / total_emails * 100, 1),
+            'valid': valid_count,
+            'invalid': invalid_count,
+            'validity_rate': round(validity_rate, 1),
+            'high_risk_count': high_risk_count
+        })
+    
+    # Calculate provider percentages
+    provider_percentages = {}
+    for ptype, count in provider_types.items():
+        if count > 0:
+            provider_percentages[ptype] = {
+                'count': count,
+                'percentage': round(count / total_emails * 100, 1)
+            }
+    
+    return {
+        'total_domains': len(domain_counts),
+        'top_domains': top_domains,
+        'provider_distribution': provider_percentages,
+        'total_emails': total_emails
+    }
+
+
+# ============================================================================
 # MIDDLEWARE - Extract Anonymous User ID & Rate Limiting
 # ============================================================================
 
@@ -58,14 +167,9 @@ def validate_uuid_format(user_id: str) -> bool:
 
 
 def validate_email_format(email: str) -> bool:
-    """Basic email format validation."""
-    if not email or not isinstance(email, str):
-        return False
-    if len(email) > 254 or len(email) < 3:
-        return False
-    if '@' not in email:
-        return False
-    return True
+    """Basic email format validation using the proper validator."""
+    from emailvalidator_unified import validate_email
+    return validate_email(email)
 
 
 def get_anon_user_id():
@@ -368,7 +472,8 @@ def validate_batch_endpoint():
     Request body:
         {
             "emails": ["user1@example.com", "user2@test.com"],
-            "advanced": true
+            "advanced": true,
+            "remove_duplicates": true
         }
     
     Response:
@@ -376,6 +481,7 @@ def validate_batch_endpoint():
             "total": 2,
             "valid_count": 1,
             "invalid_count": 1,
+            "duplicates_removed": 5,
             "results": [...],
             "processing_time": 0.123
         }
@@ -404,6 +510,26 @@ def validate_batch_endpoint():
         
         emails = data['emails']
         advanced = data.get('advanced', True)
+        remove_duplicates = data.get('remove_duplicates', True)
+        
+        # Track original count for duplicate detection
+        original_count = len(emails)
+        
+        # Remove duplicates if requested (case-insensitive)
+        if remove_duplicates:
+            emails_lower = [email.lower().strip() for email in emails]
+            unique_emails = []
+            seen = set()
+            for email in emails:
+                email_lower = email.lower().strip()
+                if email_lower not in seen:
+                    seen.add(email_lower)
+                    unique_emails.append(email)
+            emails = unique_emails
+            duplicates_removed = original_count - len(emails)
+            logger.info(f"Removed {duplicates_removed} duplicates from batch (user: {anon_user_id})")
+        else:
+            duplicates_removed = 0
         
         # Input validation
         if not isinstance(emails, list):
@@ -513,12 +639,18 @@ def validate_batch_endpoint():
         
         valid_count = sum(1 for r in results if r.get('valid', False))
         
-        logger.info(f"Batch validation completed: {valid_count}/{len(results)} valid, {stored_count} stored, {processing_time:.2f}s")
+        # Calculate domain statistics
+        domain_stats = calculate_domain_stats(results)
+        
+        logger.info(f"Batch validation completed: {valid_count}/{len(results)} valid, {stored_count} stored, {duplicates_removed} duplicates removed, {processing_time:.2f}s")
         
         return jsonify({
             'total': len(results),
+            'original_count': original_count,
+            'duplicates_removed': duplicates_removed,
             'valid_count': valid_count,
             'invalid_count': len(results) - valid_count,
+            'domain_stats': domain_stats,
             'results': results,
             'processing_time': round(processing_time, 4)
         })
@@ -544,7 +676,8 @@ def validate_batch_stream():
     Request body:
         {
             "emails": ["user1@example.com", "user2@test.com"],
-            "advanced": true
+            "advanced": true,
+            "remove_duplicates": true
         }
     
     Response: Server-Sent Events (SSE) stream
@@ -573,6 +706,26 @@ def validate_batch_stream():
         
         emails = data.get('emails', [])
         advanced = data.get('advanced', True)
+        remove_duplicates = data.get('remove_duplicates', True)
+        
+        # Track original count
+        original_count = len(emails)
+        
+        # Remove duplicates if requested (case-insensitive)
+        if remove_duplicates:
+            emails_lower = [email.lower().strip() for email in emails]
+            unique_emails = []
+            seen = set()
+            for email in emails:
+                email_lower = email.lower().strip()
+                if email_lower not in seen:
+                    seen.add(email_lower)
+                    unique_emails.append(email)
+            emails = unique_emails
+            duplicates_removed = original_count - len(emails)
+            logger.info(f"Stream: Removed {duplicates_removed} duplicates (user: {anon_user_id})")
+        else:
+            duplicates_removed = 0
         
         if not isinstance(emails, list):
             return jsonify({
@@ -598,9 +751,10 @@ def validate_batch_stream():
             total = len(emails)
             valid_count = 0
             invalid_count = 0
+            all_results = []  # Collect all results for domain stats
             
-            # Send initial progress event
-            yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
+            # Send initial progress event with duplicate info
+            yield f"data: {json.dumps({'type': 'start', 'total': total, 'original_count': original_count, 'duplicates_removed': duplicates_removed})}\n\n"
             
             for index, email in enumerate(emails):
                 try:
@@ -673,6 +827,9 @@ def validate_batch_stream():
                     else:
                         invalid_count += 1
                     
+                    # Store result for domain stats
+                    all_results.append(result)
+                    
                     # Send result event
                     event_data = {
                         'type': 'result',
@@ -710,12 +867,18 @@ def validate_batch_stream():
                     }
                     yield f"data: {json.dumps(error_result)}\n\n"
             
+            # Calculate domain statistics
+            domain_stats = calculate_domain_stats(all_results)
+            
             # Send completion event
             completion_data = {
                 'type': 'complete',
                 'total': total,
+                'original_count': original_count,
+                'duplicates_removed': duplicates_removed,
                 'valid_count': valid_count,
-                'invalid_count': invalid_count
+                'invalid_count': invalid_count,
+                'domain_stats': domain_stats
             }
             yield f"data: {json.dumps(completion_data)}\n\n"
         

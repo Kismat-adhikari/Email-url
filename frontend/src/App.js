@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
 import { 
-  FiMail, FiSun, FiMoon, FiRefreshCw, 
+  FiMail, FiRefreshCw, 
   FiTrash2, FiDownload, FiCopy
 } from 'react-icons/fi';
 
@@ -44,10 +44,12 @@ function App() {
   const [batchResults, setBatchResults] = useState(null);
   const [uploadMode, setUploadMode] = useState('text');
   const [selectedFile, setSelectedFile] = useState(null);
-  const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
-    return saved ? JSON.parse(saved) : false;
-  });
+  const [removeDuplicates, setRemoveDuplicates] = useState(true);
+  const [duplicateInfo, setDuplicateInfo] = useState(null);
+  const [showDomainStats, setShowDomainStats] = useState(true);
+  const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0, eta: 0, speed: 0 });
+  const [shareLink, setShareLink] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
   
   const [history, setHistory] = useState([]);
   const [filteredHistory, setFilteredHistory] = useState([]);
@@ -68,50 +70,159 @@ function App() {
     }
   });
 
-  const toggleDarkMode = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    localStorage.setItem('darkMode', JSON.stringify(newMode));
-    document.body.classList.toggle('dark-mode', newMode);
-  };
-
   useEffect(() => {
-    document.body.classList.toggle('dark-mode', darkMode);
-  }, [darkMode]);
+    // Remove any dark mode class on mount
+    document.body.classList.remove('dark-mode');
+  }, []);
 
   const exportToCSV = () => {
     if (!batchResults || !batchResults.results) return;
 
     const headers = mode === 'advanced' 
-      ? ['Email', 'Valid', 'Confidence Score', 'Reason', 'Suggestion']
-      : ['Email', 'Valid'];
+      ? [
+          'Email', 'Valid', 'Confidence Score', 'Deliverability Score', 'Deliverability Grade',
+          'Status', 'Risk Level', 'Domain', 'Provider Type', 
+          'Is Disposable', 'Is Role Based', 'Has MX Records', 'DNS Valid',
+          'Bounce Risk', 'Reason', 'Suggestion'
+        ]
+      : ['Email', 'Valid', 'Domain', 'Reason'];
 
     const rows = batchResults.results.map(r => {
+      const domain = r.email.includes('@') ? r.email.split('@')[1] : '';
+      
       if (mode === 'advanced') {
         return [
           r.email,
           r.valid ? 'Yes' : 'No',
           r.confidence_score || 'N/A',
+          r.deliverability?.deliverability_score || 'N/A',
+          r.deliverability?.deliverability_grade || 'N/A',
+          r.status?.status || 'N/A',
+          r.risk_check?.overall_risk || 'N/A',
+          domain,
+          r.enrichment?.domain_type || 'N/A',
+          r.checks?.is_disposable ? 'Yes' : 'No',
+          r.checks?.is_role_based ? 'Yes' : 'No',
+          r.checks?.mx_records ? 'Yes' : 'No',
+          r.checks?.dns_valid ? 'Yes' : 'No',
+          r.bounce_check?.risk_level || 'N/A',
           r.reason || '',
           r.suggestion || ''
         ];
       } else {
-        return [r.email, r.valid ? 'Yes' : 'No'];
+        return [
+          r.email, 
+          r.valid ? 'Yes' : 'No',
+          domain,
+          r.reason || ''
+        ];
       }
     });
 
+    // Add summary section at the top
+    const summary = [
+      ['Email Validation Report'],
+      ['Generated:', new Date().toLocaleString()],
+      ['Total Emails:', batchResults.total],
+      ['Valid:', batchResults.valid_count],
+      ['Invalid:', batchResults.invalid_count],
+      ['Duplicates Removed:', batchResults.duplicates_removed || 0],
+      ['Processing Time:', `${batchResults.processing_time}s`],
+      [''],
+      ['']
+    ];
+
+    // Add domain stats if available
+    if (batchResults.domain_stats && batchResults.domain_stats.top_domains) {
+      summary.push(['Top Domains:']);
+      summary.push(['Domain', 'Count', 'Percentage', 'Valid Rate']);
+      batchResults.domain_stats.top_domains.slice(0, 5).forEach(d => {
+        summary.push([d.domain, d.count, `${d.percentage}%`, `${d.validity_rate}%`]);
+      });
+      summary.push(['']);
+      summary.push(['']);
+    }
+
     const csvContent = [
+      ...summary.map(row => row.map(cell => `"${cell}"`).join(',')),
       headers.join(','),
       ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `email-validation-${Date.now()}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
+  };
+
+  const exportToJSON = () => {
+    if (!batchResults || !batchResults.results) return;
+
+    const exportData = {
+      metadata: {
+        generated_at: new Date().toISOString(),
+        total_emails: batchResults.total,
+        valid_count: batchResults.valid_count,
+        invalid_count: batchResults.invalid_count,
+        duplicates_removed: batchResults.duplicates_removed || 0,
+        processing_time: batchResults.processing_time,
+        validation_mode: mode
+      },
+      domain_statistics: batchResults.domain_stats || null,
+      results: batchResults.results
+    };
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `email-validation-${Date.now()}.json`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const generateShareLink = () => {
+    if (!batchResults || !batchResults.results) return;
+
+    // Create shareable data
+    const shareData = {
+      metadata: {
+        generated_at: new Date().toISOString(),
+        total_emails: batchResults.total,
+        valid_count: batchResults.valid_count,
+        invalid_count: batchResults.invalid_count,
+        duplicates_removed: batchResults.duplicates_removed || 0,
+        processing_time: batchResults.processing_time,
+        validation_mode: mode
+      },
+      domain_statistics: batchResults.domain_stats || null,
+      results: batchResults.results
+    };
+
+    // Generate unique ID
+    const shareId = `share_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Store in localStorage (in production, this would be a backend API call)
+    localStorage.setItem(shareId, JSON.stringify(shareData));
+    
+    // Generate shareable URL
+    const shareUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
+    setShareLink(shareUrl);
+    setShowShareModal(true);
+  };
+
+  const copyShareLink = () => {
+    if (!shareLink) return;
+    
+    navigator.clipboard.writeText(shareLink).then(() => {
+      alert('✓ Share link copied to clipboard!');
+    }).catch(() => {
+      alert('Failed to copy link');
+    });
   };
 
   const copyToClipboard = () => {
@@ -162,18 +273,39 @@ function App() {
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.type !== 'text/plain' && !file.name.endsWith('.txt')) {
-        setError('Please select a .txt file');
+      // Accept multiple file types
+      const allowedTypes = [
+        'text/plain',
+        'text/csv',
+        'application/pdf',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ];
+      
+      const allowedExtensions = ['.txt', '.csv', '.pdf', '.xls', '.xlsx', '.doc', '.docx'];
+      const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+      
+      if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+        setError('Please select a valid file (.txt, .csv, .pdf, .doc, .docx, .xls, .xlsx)');
         return;
       }
+      
       setSelectedFile(file);
       setError(null);
       
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setBatchEmails(event.target.result);
-      };
-      reader.readAsText(file);
+      // For text and CSV files, read directly
+      if (file.type === 'text/plain' || file.type === 'text/csv' || fileExtension === '.txt' || fileExtension === '.csv') {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setBatchEmails(event.target.result);
+        };
+        reader.readAsText(file);
+      } else {
+        // For other file types, show a message that we'll extract emails
+        setBatchEmails(`📄 File loaded: ${file.name}\n\nEmails will be extracted automatically when you click "Validate Batch".\n\nSupported formats: PDF, Word, Excel`);
+      }
     }
   };
 
@@ -202,8 +334,30 @@ function App() {
       }
     });
     
-    // Remove duplicates
-    return [...new Set(emails)];
+    return emails;
+  };
+
+  const detectDuplicates = (emails) => {
+    const seen = new Set();
+    const duplicates = [];
+    const unique = [];
+    
+    emails.forEach(email => {
+      const emailLower = email.toLowerCase().trim();
+      if (seen.has(emailLower)) {
+        duplicates.push(email);
+      } else {
+        seen.add(emailLower);
+        unique.push(email);
+      }
+    });
+    
+    return {
+      total: emails.length,
+      unique: unique.length,
+      duplicates: duplicates.length,
+      duplicateList: duplicates
+    };
   };
 
   const validateBatch = async () => {
@@ -214,9 +368,15 @@ function App() {
       return;
     }
 
+    // Detect duplicates for display
+    const dupInfo = detectDuplicates(emails);
+    setDuplicateInfo(dupInfo);
+
+    const startTime = Date.now();
     setLoading(true);
     setError(null);
     setBatchResults({ results: [], total: emails.length, valid_count: 0, invalid_count: 0 });
+    setProgress({ current: 0, total: emails.length, percentage: 0, eta: 0, speed: 0 });
 
     try {
       const response = await fetch(`${API_URL}/api/validate/batch/stream`, {
@@ -227,7 +387,8 @@ function App() {
         },
         body: JSON.stringify({
           emails,
-          advanced: mode === 'advanced'
+          advanced: mode === 'advanced',
+          remove_duplicates: removeDuplicates
         })
       });
 
@@ -252,7 +413,32 @@ function App() {
           if (line.startsWith('data: ')) {
             const data = JSON.parse(line.slice(6));
             
-            if (data.type === 'result') {
+            if (data.type === 'start') {
+              // Update duplicate info from server
+              if (data.duplicates_removed > 0) {
+                setDuplicateInfo(prev => ({
+                  ...prev,
+                  removed: data.duplicates_removed
+                }));
+              }
+            } else if (data.type === 'result') {
+              // Calculate ETA and speed
+              const elapsed = (Date.now() - startTime) / 1000; // seconds
+              const current = data.progress.current;
+              const total = data.progress.total;
+              const speed = current / elapsed; // emails per second
+              const remaining = total - current;
+              const eta = remaining / speed; // seconds
+
+              // Update progress
+              setProgress({
+                current,
+                total,
+                percentage: data.progress.percentage,
+                eta: Math.ceil(eta),
+                speed: speed.toFixed(1)
+              });
+
               // Add result to the list in real-time
               setBatchResults(prev => ({
                 ...prev,
@@ -262,13 +448,28 @@ function App() {
                 total: data.progress.total
               }));
             } else if (data.type === 'complete') {
+              // Calculate actual processing time
+              const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
+              
+              // Final progress update
+              setProgress({
+                current: data.total,
+                total: data.total,
+                percentage: 100,
+                eta: 0,
+                speed: (data.total / parseFloat(processingTime)).toFixed(1)
+              });
+              
               // Final update
               setBatchResults(prev => ({
                 ...prev,
                 valid_count: data.valid_count,
                 invalid_count: data.invalid_count,
                 total: data.total,
-                processing_time: 0
+                original_count: data.original_count,
+                duplicates_removed: data.duplicates_removed,
+                domain_stats: data.domain_stats,
+                processing_time: processingTime
               }));
             }
           }
@@ -351,6 +552,50 @@ function App() {
     }
   };
 
+  const exportHistoryToCSV = () => {
+    if (!filteredHistory || filteredHistory.length === 0) {
+      alert('No history to export');
+      return;
+    }
+
+    const headers = [
+      'Email', 'Valid', 'Confidence Score', 'Date', 
+      'Is Disposable', 'Is Role Based', 'Has MX Records'
+    ];
+
+    const rows = filteredHistory.map(item => [
+      item.email,
+      item.valid ? 'Yes' : 'No',
+      item.confidence_score || 'N/A',
+      new Date(item.validated_at).toLocaleString(),
+      item.checks?.is_disposable ? 'Yes' : 'No',
+      item.checks?.is_role_based ? 'Yes' : 'No',
+      item.checks?.mx_records ? 'Yes' : 'No'
+    ]);
+
+    const summary = [
+      ['Email Validation History'],
+      ['Exported:', new Date().toLocaleString()],
+      ['Total Records:', filteredHistory.length],
+      [''],
+      ['']
+    ];
+
+    const csvContent = [
+      ...summary.map(row => row.map(cell => `"${cell}"`).join(',')),
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `email-history-${Date.now()}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     if (historyMode) {
       filterHistory();
@@ -388,12 +633,9 @@ function App() {
               <h1><FiMail className="header-icon" /> Email Validator</h1>
               <p>Advanced email validation with DNS, MX, and disposable detection</p>
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <div>
               <button className="landing-btn" onClick={() => navigate('/testing')}>
-                Landing
-              </button>
-              <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode">
-                {darkMode ? <FiSun /> : <FiMoon />}
+                🚀 Landing Page
               </button>
             </div>
           </div>
@@ -493,6 +735,9 @@ function App() {
               <button className="refresh-btn" onClick={loadHistory}>
                 <FiRefreshCw /> Refresh
               </button>
+              <button className="export-btn csv" onClick={() => exportHistoryToCSV()}>
+                <FiDownload /> CSV
+              </button>
               <button className="clear-all-btn" onClick={clearAllHistory}>
                 <FiTrash2 /> Clear All
               </button>
@@ -548,24 +793,33 @@ function App() {
             )}
           </div>
         ) : !batchMode ? (
-          <div className="input-section">
-            <input
-              type="email"
-              className="email-input"
-              placeholder="Enter email address..."
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={loading}
-            />
-            <button
-              className="validate-btn"
-              onClick={validateEmail}
-              disabled={loading}
-            >
-              {loading ? 'Validating...' : 'Validate'}
-            </button>
-          </div>
+          <>
+            <div className="input-section">
+              <input
+                type="email"
+                className="email-input"
+                placeholder="Enter email address..."
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={loading}
+              />
+              <button
+                className="validate-btn"
+                onClick={validateEmail}
+                disabled={loading}
+              >
+                Validate
+              </button>
+            </div>
+            
+            {loading && !batchMode && (
+              <div className="single-loading">
+                <div className="loading-spinner"></div>
+                <span>Validating email...</span>
+              </div>
+            )}
+          </>
         ) : (
           <div className="batch-section">
             <div className="upload-mode-selector">
@@ -583,10 +837,34 @@ function App() {
               </button>
             </div>
 
+            <div className="duplicate-control">
+              <label className="duplicate-checkbox">
+                <input
+                  type="checkbox"
+                  checked={removeDuplicates}
+                  onChange={(e) => setRemoveDuplicates(e.target.checked)}
+                />
+                <span>🔄 Automatically remove duplicate emails</span>
+              </label>
+              {batchEmails && (() => {
+                const emails = parseEmails(batchEmails);
+                const dupInfo = detectDuplicates(emails);
+                if (dupInfo.duplicates > 0) {
+                  return (
+                    <div className="duplicate-warning">
+                      ⚠️ Found {dupInfo.duplicates} duplicate{dupInfo.duplicates > 1 ? 's' : ''} out of {dupInfo.total} emails
+                      {removeDuplicates && ` (will be removed automatically)`}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+
             {uploadMode === 'text' ? (
               <>
                 <div className="format-info">
-                  💡 Paste emails in any format: one per line, comma-separated, or from Excel
+                  💡 Paste emails in any format: one per line, comma-separated, or copy from Excel/Sheets
                 </div>
                 <textarea
                   className="batch-input"
@@ -603,13 +881,13 @@ function App() {
                   <input
                     type="file"
                     id="file-input"
-                    accept=".txt"
+                    accept=".txt,.csv,.pdf,.doc,.docx,.xls,.xlsx"
                     onChange={handleFileSelect}
                     disabled={loading}
                     style={{ display: 'none' }}
                   />
                   <label htmlFor="file-input" className="file-upload-label">
-                    <div className="upload-icon">📄</div>
+                    <div className="upload-icon">📎</div>
                     <div className="upload-text">
                       {selectedFile ? (
                         <>
@@ -619,9 +897,9 @@ function App() {
                         </>
                       ) : (
                         <>
-                          <strong>Click to upload .txt file</strong>
+                          <strong>Click to upload file</strong>
                           <br />
-                          <small>One email per line</small>
+                          <small>Supports: TXT, CSV, PDF, Word, Excel</small>
                         </>
                       )}
                     </div>
@@ -649,6 +927,27 @@ function App() {
             >
               {loading ? 'Validating...' : 'Validate Batch'}
             </button>
+          </div>
+        )}
+
+        {loading && batchMode && progress.total > 0 && (
+          <div className="progress-container">
+            <div className="progress-header">
+              <span className="progress-text">
+                Processing {progress.current} of {progress.total} emails ({progress.percentage}%)
+              </span>
+              <span className="progress-stats">
+                {progress.speed} emails/sec • ETA: {progress.eta}s
+              </span>
+            </div>
+            <div className="progress-bar-wrapper">
+              <div 
+                className="progress-bar-fill" 
+                style={{ width: `${progress.percentage}%` }}
+              >
+                <span className="progress-bar-text">{progress.percentage}%</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -862,18 +1161,30 @@ function App() {
               <div className="batch-header">
                 <h2>Batch Results</h2>
                 <div className="export-buttons">
-                  <button className="export-btn" onClick={exportToCSV} title="Export to CSV">
-                    <FiDownload /> Export CSV
+                  <button className="export-btn csv" onClick={exportToCSV} title="Export to CSV (Excel-ready)">
+                    <FiDownload /> CSV
                   </button>
-                  <button className="export-btn" onClick={copyToClipboard} title="Copy to Clipboard">
+                  <button className="export-btn json" onClick={exportToJSON} title="Export to JSON (Full data)">
+                    <FiDownload /> JSON
+                  </button>
+                  <button className="export-btn copy" onClick={copyToClipboard} title="Copy to Clipboard">
                     <FiCopy /> Copy
+                  </button>
+                  <button className="export-btn share" onClick={generateShareLink} title="Generate shareable link">
+                    🔗 Share
                   </button>
                 </div>
               </div>
+              {batchResults.duplicates_removed > 0 && (
+                <div className="duplicate-info-banner">
+                  🔄 Removed {batchResults.duplicates_removed} duplicate email{batchResults.duplicates_removed > 1 ? 's' : ''} 
+                  {batchResults.original_count && ` (${batchResults.original_count} → ${batchResults.total})`}
+                </div>
+              )}
               <div className="summary-stats">
                 <div className="stat">
                   <span className="stat-value">{batchResults.total}</span>
-                  <span className="stat-label">Total</span>
+                  <span className="stat-label">Validated</span>
                 </div>
                 <div className="stat valid">
                   <span className="stat-value">{batchResults.valid_count}</span>
@@ -883,11 +1194,101 @@ function App() {
                   <span className="stat-value">{batchResults.invalid_count}</span>
                   <span className="stat-label">Invalid</span>
                 </div>
+                {batchResults.duplicates_removed > 0 && (
+                  <div className="stat duplicate">
+                    <span className="stat-value">{batchResults.duplicates_removed}</span>
+                    <span className="stat-label">Duplicates</span>
+                  </div>
+                )}
               </div>
               <div className="meta-info">
                 Processing time: {batchResults.processing_time}s
               </div>
             </div>
+
+            {batchResults.domain_stats && (
+              <div className="domain-stats-section">
+                <div className="domain-stats-header">
+                  <h3>📊 Domain Statistics</h3>
+                  <button 
+                    className="toggle-stats-btn"
+                    onClick={() => setShowDomainStats(!showDomainStats)}
+                  >
+                    {showDomainStats ? '▼ Hide' : '▶ Show'}
+                  </button>
+                </div>
+
+                {showDomainStats && (
+                  <>
+                    {/* Provider Distribution */}
+                    {batchResults.domain_stats.provider_distribution && Object.keys(batchResults.domain_stats.provider_distribution).length > 0 && (
+                      <div className="stats-card">
+                        <h4>📧 Provider Types</h4>
+                        <div className="provider-grid">
+                          {Object.entries(batchResults.domain_stats.provider_distribution).map(([type, data]) => (
+                            <div key={type} className={`provider-item provider-${type}`}>
+                              <div className="provider-icon">
+                                {type === 'free' && '🆓'}
+                                {type === 'business' && '💼'}
+                                {type === 'disposable' && '🗑️'}
+                                {type === 'educational' && '🎓'}
+                                {type === 'government' && '🏛️'}
+                                {type === 'unknown' && '❓'}
+                              </div>
+                              <div className="provider-info">
+                                <span className="provider-type">{type.charAt(0).toUpperCase() + type.slice(1)}</span>
+                                <span className="provider-count">{data.count} ({data.percentage}%)</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Top Domains */}
+                    {batchResults.domain_stats.top_domains && batchResults.domain_stats.top_domains.length > 0 && (
+                      <div className="stats-card">
+                        <h4>🏆 Top Domains ({batchResults.domain_stats.total_domains} unique)</h4>
+                        <div className="domain-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Domain</th>
+                                <th>Count</th>
+                                <th>% of Total</th>
+                                <th>Valid Rate</th>
+                                <th>Risk</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {batchResults.domain_stats.top_domains.map((domain, idx) => (
+                                <tr key={idx}>
+                                  <td className="domain-name">{domain.domain}</td>
+                                  <td>{domain.count}</td>
+                                  <td>{domain.percentage}%</td>
+                                  <td>
+                                    <span className={`validity-badge ${domain.validity_rate >= 80 ? 'high' : domain.validity_rate >= 50 ? 'medium' : 'low'}`}>
+                                      {domain.validity_rate}%
+                                    </span>
+                                  </td>
+                                  <td>
+                                    {domain.high_risk_count > 0 ? (
+                                      <span className="risk-badge high">⚠️ {domain.high_risk_count}</span>
+                                    ) : (
+                                      <span className="risk-badge low">✓</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="batch-list">
               {batchResults.results.map((item, index) => (
@@ -1022,6 +1423,50 @@ function App() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {showShareModal && (
+          <div className="modal-overlay" onClick={() => setShowShareModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>🔗 Share Results</h3>
+                <button className="modal-close" onClick={() => setShowShareModal(false)}>✕</button>
+              </div>
+              <div className="modal-body">
+                <p className="share-description">
+                  Anyone with this link can view your validation results. The link will expire in 24 hours.
+                </p>
+                <div className="share-link-container">
+                  <input 
+                    type="text" 
+                    className="share-link-input" 
+                    value={shareLink || ''} 
+                    readOnly 
+                  />
+                  <button className="copy-link-btn" onClick={copyShareLink}>
+                    <FiCopy /> Copy
+                  </button>
+                </div>
+                <div className="share-stats">
+                  <div className="share-stat">
+                    <strong>{batchResults?.total || 0}</strong>
+                    <span>Emails</span>
+                  </div>
+                  <div className="share-stat">
+                    <strong>{batchResults?.valid_count || 0}</strong>
+                    <span>Valid</span>
+                  </div>
+                  <div className="share-stat">
+                    <strong>{batchResults?.invalid_count || 0}</strong>
+                    <span>Invalid</span>
+                  </div>
+                </div>
+                <div className="share-note">
+                  💡 Tip: Share this link via email, Slack, or any messaging app
+                </div>
+              </div>
             </div>
           </div>
         )}
