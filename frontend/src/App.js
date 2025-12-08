@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
+import './AppModern.css';
 import { 
   FiMail, FiRefreshCw, 
   FiTrash2, FiDownload, FiCopy
@@ -969,6 +970,7 @@ function App() {
               )}
             </div>
 
+            <div className="result-body">
             {mode === 'advanced' && result.checks && (
               <>
                 <div className="confidence-section">
@@ -1145,6 +1147,7 @@ function App() {
 
             <div className="meta-info">
               Processing time: {result.processing_time}s
+            </div>
             </div>
 
           </div>
