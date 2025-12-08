@@ -817,7 +817,15 @@ def validate_batch_stream():
                         # Store in database
                         if storage:
                             try:
-                                storage.store_validation(anon_user_id, result)
+                                storage.create_record({
+                                    'anon_user_id': anon_user_id,
+                                    'email': result.get('email'),
+                                    'valid': result.get('valid', False),
+                                    'confidence_score': result.get('confidence_score', 0),
+                                    'checks': result.get('checks', {}),
+                                    'is_disposable': result.get('checks', {}).get('is_disposable', False),
+                                    'is_role_based': result.get('checks', {}).get('is_role_based', False)
+                                })
                             except Exception as e:
                                 logger.error(f"Failed to store validation: {str(e)}")
                     
