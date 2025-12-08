@@ -3,7 +3,7 @@ services:
     name: email-validator
     env: python
     buildCommand: "pip install -r requirements.txt && cd frontend && npm install && npm run build"
-    startCommand: "python app_anon_history.py"
+    startCommand: "gunicorn app_anon_history:app"
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
