@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
 import { 
@@ -31,6 +32,7 @@ function getAnonUserId() {
 }
 
 function App() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [mode, setMode] = useState('advanced');
   const [loading, setLoading] = useState(false);
@@ -338,9 +340,14 @@ function App() {
               <h1><FiMail className="header-icon" /> Email Validator</h1>
               <p>Advanced email validation with DNS, MX, and disposable detection</p>
             </div>
-            <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode">
-              {darkMode ? <FiSun /> : <FiMoon />}
-            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="landing-btn" onClick={() => navigate('/testing')}>
+                Landing
+              </button>
+              <button className="dark-mode-toggle" onClick={toggleDarkMode} title="Toggle Dark Mode">
+                {darkMode ? <FiSun /> : <FiMoon />}
+              </button>
+            </div>
           </div>
         </header>
 
