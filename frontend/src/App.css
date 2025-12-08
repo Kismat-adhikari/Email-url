@@ -1,22 +1,17 @@
-/* Clean Professional Design */
+/* Full Page Modern Design */
 .App {
   min-height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-  background: #f8fafc;
+  flex-direction: column;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 .container {
-  max-width: 950px;
+  flex: 1;
   width: 100%;
   background: white;
-  border-radius: 20px;
-  box-shadow: 
-    0 4px 6px rgba(0, 0, 0, 0.05),
-    0 10px 25px rgba(0, 0, 0, 0.08);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   animation: slideUp 0.5s ease-out;
 }
 
@@ -31,31 +26,47 @@
   }
 }
 
-/* Clean Modern Header */
+/* Modern Full-Width Header */
 .header {
-  padding: 36px 40px;
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  padding: 24px 60px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  border-bottom: 3px solid #6366f1;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
 }
 
 .header-content {
+  max-width: 1400px;
+  margin: 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
 .header h1 {
-  font-size: 2.5rem;
+  font-size: 2rem;
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .header p {
-  font-size: 1rem;
+  font-size: 0.95rem;
   opacity: 0.95;
   font-weight: 500;
+}
+
+.lagic-badge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .landing-btn {
@@ -75,13 +86,17 @@
   transform: translateY(-2px);
 }
 
-/* Clean Mode Selector */
+/* Full-Width Mode Selector */
 .mode-selector {
   display: flex;
   gap: 10px;
-  padding: 24px 40px;
+  padding: 24px 60px;
   background: #fafbfc;
   border-bottom: 1px solid #e5e7eb;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .mode-btn {
@@ -115,9 +130,13 @@
   display: flex;
   gap: 24px;
   justify-content: center;
-  padding: 20px 40px;
+  padding: 20px 60px;
   background: white;
   border-bottom: 1px solid #e5e7eb;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .validation-mode label {
@@ -741,17 +760,31 @@
 /* Footer with Gradient */
 .footer {
   text-align: center;
-  padding: 28px 36px;
-  border-top: 1px solid rgba(226, 232, 240, 0.5);
-  color: #94a3b8;
+  padding: 32px 60px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
   font-size: 0.9rem;
-  background: linear-gradient(to top, #f8fafc 0%, #ffffff 100%);
   font-weight: 500;
+  margin-top: auto;
 }
 
 .footer p {
-  margin: 6px 0;
-  line-height: 1.6;
+  margin: 8px 0;
+  line-height: 1.8;
+  opacity: 0.95;
+}
+
+.footer-lagic {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.footer-lagic strong {
+  font-weight: 700;
+  letter-spacing: 1px;
 }
 
 /* Scrollbar */
@@ -2854,5 +2887,66 @@ body.dark-mode .usage-stats-bar {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Full-Width Content Wrapper */
+.input-section,
+.batch-section,
+.history-section,
+.error-box,
+.result-box,
+.batch-results,
+.progress-container,
+.single-loading {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 60px;
+  padding-right: 60px;
+  box-sizing: border-box;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .header-content,
+  .mode-selector,
+  .validation-mode,
+  .input-section,
+  .batch-section,
+  .history-section,
+  .error-box,
+  .result-box,
+  .batch-results,
+  .progress-container,
+  .single-loading {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-content,
+  .mode-selector,
+  .validation-mode,
+  .input-section,
+  .batch-section,
+  .history-section,
+  .error-box,
+  .result-box,
+  .batch-results,
+  .progress-container,
+  .single-loading {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  
+  .header h1 {
+    font-size: 1.5rem;
+  }
+  
+  .lagic-badge {
+    font-size: 0.65rem;
+    padding: 3px 8px;
   }
 }

@@ -622,7 +622,10 @@ function App() {
         <header className="header">
           <div className="header-content">
             <div>
-              <h1><FiMail className="header-icon" /> Email Validator</h1>
+              <h1>
+                <FiMail className="header-icon" /> Email Validator
+                <span className="lagic-badge">LAGIC</span>
+              </h1>
               <p>Advanced email validation with DNS, MX, and disposable detection</p>
             </div>
             <div>
@@ -1466,6 +1469,10 @@ function App() {
         <footer className="footer">
           <p>Powered by RFC 5321 compliant validation engine with AI-powered analysis</p>
           <p>Features: DNS • MX • Pattern Analysis • Email Enrichment • Deliverability Scoring</p>
+          <div className="footer-lagic">
+            <p><strong>LAGIC</strong> - Lead Audience Growth Intelligence Computing</p>
+            <p>© 2025 LAGIC. All rights reserved.</p>
+          </div>
         </footer>
       </div>
     </div>
