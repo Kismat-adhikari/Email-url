@@ -3,9 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
 import './AppModern.css';
+import './AppPro.css';
 import { 
   FiMail, FiRefreshCw, 
-  FiTrash2, FiDownload, FiCopy
+  FiTrash2, FiDownload, FiCopy, FiCheckCircle, FiXCircle,
+  FiZap, FiCpu, FiInbox, FiList, FiClock, FiAlertTriangle,
+  FiAlertCircle, FiFileText,
+  FiShield, FiTrendingUp, FiActivity, FiAward, FiMoon, FiSun
 } from 'react-icons/fi';
 
 // ============================================================================
@@ -58,6 +62,10 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   
   const [anonUserId] = useState(() => getAnonUserId());
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved ? JSON.parse(saved) : false;
+  });
 
   const API_URL = process.env.NODE_ENV === 'production' 
     ? ''
@@ -71,9 +79,18 @@ function App() {
   });
 
   useEffect(() => {
-    // Remove any dark mode class on mount
-    document.body.classList.remove('dark-mode');
-  }, []);
+    // Apply dark mode class
+    if (darkMode) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
+    }
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
+  }, [darkMode]);
+
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+  };
 
   const exportToCSV = () => {
     if (!batchResults || !batchResults.results) return;
@@ -619,92 +636,127 @@ function App() {
 
   return (
     <div className="App">
-      <div className="container">
-        <header className="header">
-          <div className="header-content">
-            <div>
-              <h1>
-                <FiMail className="header-icon" /> Email Validator
-                <span className="lagic-badge">LAGIC</span>
-              </h1>
-              <p>Advanced email validation with DNS, MX, and disposable detection</p>
-            </div>
-            <div>
-              <button className="landing-btn" onClick={() => navigate('/testing')}>
-                🚀 Landing Page
-              </button>
-            </div>
+      <div className="pro-container">
+        {/* Header */}
+        <header className="pro-header">
+          <div className="pro-header-top">
+            <button className="dark-mode-toggle" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+              {darkMode ? <FiSun /> : <FiMoon />}
+            </button>
+          </div>
+          <div className="pro-header-title">
+            <h1><FiMail /> Email Validator</h1>
+            <span className="lagic-badge-pro">LAGIC</span>
+          </div>
+          <p className="pro-header-subtitle">
+            Enterprise-grade email validation with AI-powered analysis, DNS verification, and deliverability scoring
+          </p>
+          <div className="pro-header-actions">
+            <button className="landing-btn-pro" onClick={() => navigate('/testing')}>
+              <FiTrendingUp /> View Landing Page
+            </button>
           </div>
         </header>
 
-        <div className="mode-selector">
-          <button
-            className={`mode-btn ${!batchMode && !historyMode ? 'active' : ''}`}
-            onClick={() => {
-              setBatchMode(false);
-              setHistoryMode(false);
-              setResult(null);
-              setBatchResults(null);
-              setError(null);
-            }}
-          >
-            Single Email
-          </button>
-          <button
-            className={`mode-btn ${batchMode ? 'active' : ''}`}
-            onClick={() => {
-              setBatchMode(true);
-              setHistoryMode(false);
-              setResult(null);
-              setBatchResults(null);
-              setError(null);
-            }}
-          >
-            Batch Validation
-          </button>
-          <button
-            className={`mode-btn ${historyMode ? 'active' : ''}`}
-            onClick={() => {
-              setHistoryMode(true);
-              setBatchMode(false);
-              setResult(null);
-              setBatchResults(null);
-              setError(null);
-              loadHistory();
-            }}
-          >
-            History
-          </button>
-        </div>
+        {/* Main Card */}
+        <div className="pro-main-card">
+          {/* Tabs */}
+          <div className="pro-tabs">
+            <button
+              className={`pro-tab ${!batchMode && !historyMode ? 'active' : ''}`}
+              onClick={() => {
+                setBatchMode(false);
+                setHistoryMode(false);
+                setResult(null);
+                setBatchResults(null);
+                setError(null);
+              }}
+            >
+              <span className="pro-tab-icon"><FiInbox /></span>
+              Single Email
+            </button>
+            <button
+              className={`pro-tab ${batchMode ? 'active' : ''}`}
+              onClick={() => {
+                setBatchMode(true);
+                setHistoryMode(false);
+                setResult(null);
+                setBatchResults(null);
+                setError(null);
+              }}
+            >
+              <span className="pro-tab-icon"><FiList /></span>
+              Batch Validation
+            </button>
+            <button
+              className={`pro-tab ${historyMode ? 'active' : ''}`}
+              onClick={() => {
+                setHistoryMode(true);
+                setBatchMode(false);
+                setResult(null);
+                setBatchResults(null);
+                setError(null);
+                loadHistory();
+              }}
+            >
+              <span className="pro-tab-icon"><FiClock /></span>
+              History
+            </button>
+          </div>
 
-        <div className="validation-mode">
-          <label>
-            <input
-              type="radio"
-              value="basic"
-              checked={mode === 'basic'}
-              onChange={(e) => {
-                setMode(e.target.value);
-                setResult(null);
-                setError(null);
-              }}
-            />
-            <span>Basic - Syntax Only (Fast)</span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="advanced"
-              checked={mode === 'advanced'}
-              onChange={(e) => {
-                setMode(e.target.value);
-                setResult(null);
-                setError(null);
-              }}
-            />
-            <span>Advanced - Full Check (DNS, MX, Disposable)</span>
-          </label>
-        </div>
+          {/* Content */}
+          <div className="pro-content">
+            {/* Mode Selector */}
+            <div className="pro-mode-selector">
+              <div 
+                className={`pro-mode-option ${mode === 'basic' ? 'active' : ''}`}
+                onClick={() => {
+                  setMode('basic');
+                  setResult(null);
+                  setError(null);
+                }}
+              >
+                <input
+                  type="radio"
+                  className="pro-mode-radio"
+                  value="basic"
+                  checked={mode === 'basic'}
+                  onChange={(e) => {
+                    setMode(e.target.value);
+                    setResult(null);
+                    setError(null);
+                  }}
+                />
+                <div className="pro-mode-label">
+                  <div className="pro-mode-title"><FiZap style={{display: 'inline', marginRight: '8px'}} /> Basic Mode</div>
+                  <div className="pro-mode-desc">Syntax validation only - Lightning fast</div>
+                </div>
+              </div>
+              <div 
+                className={`pro-mode-option ${mode === 'advanced' ? 'active' : ''}`}
+                onClick={() => {
+                  setMode('advanced');
+                  setResult(null);
+                  setError(null);
+                }}
+              >
+                <input
+                  type="radio"
+                  className="pro-mode-radio"
+                  value="advanced"
+                  checked={mode === 'advanced'}
+                  onChange={(e) => {
+                    setMode(e.target.value);
+                    setResult(null);
+                    setError(null);
+                  }}
+                />
+                <div className="pro-mode-label">
+                  <div className="pro-mode-title"><FiCpu style={{display: 'inline', marginRight: '8px'}} /> Advanced Mode</div>
+                  <div className="pro-mode-desc">Full validation - DNS, MX, Disposable, AI Analysis</div>
+                </div>
+              </div>
+            </div>
 
 
 
@@ -790,29 +842,33 @@ function App() {
           </div>
         ) : !batchMode ? (
           <>
-            <div className="input-section">
-              <input
-                type="email"
-                className="email-input"
-                placeholder="Enter email address..."
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={loading}
-              />
-              <button
-                className="validate-btn"
-                onClick={validateEmail}
-                disabled={loading}
-              >
-                Validate
-              </button>
+            {/* Single Email Input */}
+            <div className="pro-input-section">
+              <div className="pro-input-wrapper">
+                <input
+                  type="email"
+                  className="pro-email-input"
+                  placeholder="Enter email address to validate..."
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={loading}
+                />
+                <button
+                  className="pro-validate-btn"
+                  onClick={validateEmail}
+                  disabled={loading || !email.trim()}
+                >
+                  {loading ? 'Validating...' : 'Validate Email'}
+                </button>
+              </div>
             </div>
             
+            {/* Loading State */}
             {loading && !batchMode && (
-              <div className="single-loading">
-                <div className="loading-spinner"></div>
-                <span>Validating email...</span>
+              <div className="pro-loading">
+                <div className="pro-spinner"></div>
+                <div className="pro-loading-text">Analyzing email address...</div>
               </div>
             )}
           </>
@@ -947,75 +1003,84 @@ function App() {
           </div>
         )}
 
+        {/* Error Display */}
         {error && (
-          <div className="error-box">
-            <strong>Error:</strong> {error}
+          <div className="pro-error-box">
+            <strong><FiAlertTriangle style={{display: 'inline', marginRight: '8px'}} /> Error:</strong> {error}
           </div>
         )}
 
+        {/* Single Email Result */}
         {result && !batchMode && (
-          <div className={`result-box ${result.valid ? 'valid' : 'invalid'}`}>
-            <div className="result-header">
-              <div className="result-title-row">
-                <h2>{result.valid ? 'Valid Email' : 'Invalid Email'}</h2>
+          <div className={`pro-result-card ${result.valid ? 'valid' : 'invalid'}`}>
+            {/* Result Header */}
+            <div className={`pro-result-header ${result.valid ? 'valid' : 'invalid'}`}>
+              <div className="pro-result-title-row">
+                <h2 className="pro-result-title">
+                  {result.valid ? <><FiCheckCircle /> Valid Email</> : <><FiXCircle /> Invalid Email</>}
+                </h2>
                 {result.status && (
-                  <span className={`status-badge status-${result.status.color}`}>
+                  <span className="pro-status-badge">
                     {result.status.status.toUpperCase()}
                   </span>
                 )}
               </div>
-              <span className="email-display">{result.email}</span>
+              <div className="pro-email-display">{result.email}</div>
               {result.status && result.status.description && (
-                <span className="status-description">{result.status.description}</span>
+                <div className="pro-status-description">{result.status.description}</div>
               )}
             </div>
 
-            <div className="result-body">
+            {/* Result Body */}
+            <div className="pro-result-body">
             {mode === 'advanced' && result.checks && (
               <>
-                <div className="confidence-section">
-                  <div className="confidence-label">Confidence Score</div>
-                  <div className="confidence-bar-container">
-                    <div
-                      className="confidence-bar"
-                      style={{
-                        width: `${result.confidence_score || 0}%`,
-                        backgroundColor: getConfidenceColor(result.confidence_score || 0)
-                      }}
-                    />
+                {/* Score Cards */}
+                <div className="pro-score-grid">
+                  {/* Confidence Score */}
+                  <div className="pro-score-card confidence">
+                    <div className="pro-score-label">Confidence Score</div>
+                    <div className="pro-score-value">{result.confidence_score || 0}<span style={{fontSize: '1.5rem', color: '#6b7280'}}>/100</span></div>
+                    <div className="pro-score-bar">
+                      <div
+                        className="pro-score-bar-fill"
+                        style={{
+                          width: `${result.confidence_score || 0}%`,
+                          backgroundColor: getConfidenceColor(result.confidence_score || 0)
+                        }}
+                      />
+                    </div>
+                    <div className="pro-score-text">{getConfidenceLabel(result.confidence_score || 0)} Quality</div>
                   </div>
-                  <div className="confidence-value">
-                    {result.confidence_score || 0}/100 - {getConfidenceLabel(result.confidence_score || 0)}
-                  </div>
-                </div>
 
-                {result.deliverability && (
-                  <div className="deliverability-section">
-                    <div className="deliverability-header">
-                      <span className="deliverability-label">Deliverability Score</span>
+                  {/* Deliverability Score */}
+                  {result.deliverability && (
+                    <div className="pro-score-card deliverability">
+                      <div className="pro-score-label">Deliverability Score</div>
+                      <div className="pro-score-value">{result.deliverability.deliverability_score}<span style={{fontSize: '1.5rem', color: '#6b7280'}}>/100</span></div>
+                      <div className="pro-score-bar">
+                        <div
+                          className="pro-score-bar-fill"
+                          style={{
+                            width: `${result.deliverability.deliverability_score}%`,
+                            backgroundColor: result.deliverability.deliverability_score >= 80 ? '#10b981' : 
+                                           result.deliverability.deliverability_score >= 60 ? '#f59e0b' : '#ef4444'
+                          }}
+                        />
+                      </div>
                       <span 
-                        className="deliverability-grade"
+                        className="pro-score-grade"
                         style={{ 
                           backgroundColor: result.deliverability.deliverability_score >= 80 ? '#10b981' : 
                                          result.deliverability.deliverability_score >= 60 ? '#f59e0b' : '#ef4444'
                         }}
                       >
-                        Grade: {result.deliverability.deliverability_grade}
+                        Grade {result.deliverability.deliverability_grade}
                       </span>
+                      <div className="pro-score-text" style={{marginTop: '12px'}}>{result.deliverability.recommendation}</div>
                     </div>
-                    <div className="deliverability-score">{result.deliverability.deliverability_score}/100</div>
-                    <div className="deliverability-recommendation">
-                      {result.deliverability.recommendation}
-                    </div>
-                    {result.deliverability.pattern_analysis && result.deliverability.pattern_analysis.flags && (
-                      <div className="pattern-flags">
-                        {result.deliverability.pattern_analysis.flags.map((flag, idx) => (
-                          <span key={idx} className="pattern-flag">{flag}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
 
 
 
@@ -1102,51 +1167,66 @@ function App() {
                   </div>
                 )}
 
-                <div className="checks-grid">
-                  <div className={`check-item ${result.checks.syntax ? 'pass' : 'fail'}`}>
-                    <span className="check-icon">{result.checks.syntax ? '✓' : '✗'}</span>
-                    <span>Syntax</span>
+                {/* Validation Checks */}
+                <div className="pro-checks-grid">
+                  <div className={`pro-check-item ${result.checks.syntax ? 'pass' : 'fail'}`}>
+                    <span className="pro-check-icon">{result.checks.syntax ? '✓' : '✗'}</span>
+                    <span>Valid Syntax</span>
                   </div>
-                  <div className={`check-item ${result.checks.dns_valid ? 'pass' : 'fail'}`}>
-                    <span className="check-icon">{result.checks.dns_valid ? '✓' : '✗'}</span>
-                    <span>DNS</span>
+                  <div className={`pro-check-item ${result.checks.dns_valid ? 'pass' : 'fail'}`}>
+                    <span className="pro-check-icon">{result.checks.dns_valid ? '✓' : '✗'}</span>
+                    <span>DNS Valid</span>
                   </div>
-                  <div className={`check-item ${result.checks.mx_records ? 'pass' : 'fail'}`}>
-                    <span className="check-icon">{result.checks.mx_records ? '✓' : '✗'}</span>
-                    <span>MX Records</span>
+                  <div className={`pro-check-item ${result.checks.mx_records ? 'pass' : 'fail'}`}>
+                    <span className="pro-check-icon">{result.checks.mx_records ? '✓' : '✗'}</span>
+                    <span>MX Records Found</span>
                   </div>
-                  <div className={`check-item ${!result.checks.is_disposable ? 'pass' : 'warn'}`}>
-                    <span className="check-icon">{!result.checks.is_disposable ? '✓' : '⚠'}</span>
-                    <span>Not Disposable</span>
+                  <div className={`pro-check-item ${!result.checks.is_disposable ? 'pass' : 'warn'}`}>
+                    <span className="pro-check-icon">{!result.checks.is_disposable ? '✓' : '⚠'}</span>
+                    <span>{result.checks.is_disposable ? 'Disposable Email' : 'Not Disposable'}</span>
                   </div>
-                  <div className={`check-item ${!result.checks.is_role_based ? 'pass' : 'warn'}`}>
-                    <span className="check-icon">{!result.checks.is_role_based ? '✓' : '⚠'}</span>
-                    <span>Not Role-Based</span>
+                  <div className={`pro-check-item ${!result.checks.is_role_based ? 'pass' : 'warn'}`}>
+                    <span className="pro-check-icon">{!result.checks.is_role_based ? '✓' : '⚠'}</span>
+                    <span>{result.checks.is_role_based ? 'Role-Based Email' : 'Personal Email'}</span>
                   </div>
                 </div>
 
-                {result.suggestion && (
-                  <div className="suggestion-box">
-                    <strong>💡 Suggestion:</strong> Did you mean <strong>{result.suggestion}</strong>?
+                {/* Warnings */}
+                {(result.checks.is_disposable || result.checks.is_role_based) && (
+                  <div className="pro-info-box warning">
+                    <strong><FiAlertTriangle style={{display: 'inline', marginRight: '8px'}} /> Warning:</strong> {' '}
+                    {result.checks.is_disposable && 'This is a disposable/temporary email address. '}
+                    {result.checks.is_role_based && 'This is a role-based email (e.g., info@, support@). '}
+                    Not recommended for important communications.
                   </div>
                 )}
 
+                {/* Suggestion */}
+                {result.suggestion && (
+                  <div className="pro-info-box suggestion">
+                    <strong><FiAlertCircle style={{display: 'inline', marginRight: '8px'}} /> Did you mean:</strong> <strong>{result.suggestion}</strong>?
+                  </div>
+                )}
+
+                {/* Reason/Details */}
                 {result.reason && (
-                  <div className="reason-box">
-                    <strong>Details:</strong> {result.reason}
+                  <div className="pro-info-box reason">
+                    <strong><FiFileText style={{display: 'inline', marginRight: '8px'}} /> Details:</strong> {result.reason}
                   </div>
                 )}
               </>
             )}
 
-            {mode === 'advanced' && !result.checks && (
-              <div className="info-box">
-                <strong>ℹ️ Note:</strong> This result is from Basic mode. Click "Validate" again to get Advanced validation with confidence score and detailed checks.
+            {/* Basic Mode Note */}
+            {mode === 'basic' && (
+              <div className="pro-info-box" style={{background: 'linear-gradient(135deg, #fef3c7 0%, white 100%)', borderColor: '#f59e0b', color: '#92400e'}}>
+                <strong><FiZap style={{display: 'inline', marginRight: '8px'}} /> Basic Mode:</strong> Switch to Advanced Mode for full validation with DNS, MX records, deliverability scoring, and AI-powered analysis.
               </div>
             )}
 
-            <div className="meta-info">
-              Processing time: {result.processing_time}s
+            {/* Processing Time */}
+            <div className="pro-meta-info">
+              <FiActivity style={{display: 'inline', marginRight: '8px'}} /> Processing time: {result.processing_time}s
             </div>
             </div>
 
@@ -1290,10 +1370,10 @@ function App() {
 
             <div className="batch-list">
               {batchResults.results.map((item, index) => (
-                <div key={index} className={`result-box ${item.valid ? 'valid' : 'invalid'}`} style={{marginBottom: '1.5rem'}}>
+                <div key={index} className={`result-box batch-result-card ${item.valid ? 'valid' : 'invalid'}`}>
                   <div className="result-header">
                     <div className="result-title-row">
-                      <h3 style={{fontSize: '1.2rem', margin: 0}}>{item.valid ? 'Valid Email' : 'Invalid Email'}</h3>
+                      <h3 className="batch-result-title">{item.valid ? 'Valid Email' : 'Invalid Email'}</h3>
                       {item.status && (
                         <span className={`status-badge status-${item.status.color}`}>
                           {item.status.status.toUpperCase()}
@@ -1306,6 +1386,7 @@ function App() {
                     )}
                   </div>
 
+                  <div className="result-body">
                   {mode === 'advanced' && item.checks && (
                     <>
                       <div className="confidence-section">
@@ -1347,7 +1428,7 @@ function App() {
 
                       {item.risk_check && item.risk_check.overall_risk !== 'low' && (
                         <div className={`risk-warning-section ${item.risk_check.overall_risk}`}>
-                          <h4 style={{margin: '0 0 0.5rem 0'}}>Risk Detection</h4>
+                          <h4>Risk Detection</h4>
                           <div className="risk-warning-content">
                             <div className="risk-level">
                               Risk Level: <strong>{item.risk_check.overall_risk.toUpperCase()}</strong>
@@ -1361,7 +1442,7 @@ function App() {
 
                       {item.bounce_check && item.bounce_check.bounce_history.has_bounced && (
                         <div className={`bounce-warning-section ${item.bounce_check.risk_level}`}>
-                          <h4 style={{margin: '0 0 0.5rem 0'}}>Bounce History</h4>
+                          <h4>Bounce History</h4>
                           <div className="bounce-warning-content">
                             <div className="bounce-stats">
                               <div className="bounce-stat">
@@ -1419,6 +1500,7 @@ function App() {
                       <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
                     </div>
                   )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1469,15 +1551,22 @@ function App() {
           </div>
         )}
 
-        <footer className="footer">
-          <p>Powered by RFC 5321 compliant validation engine with AI-powered analysis</p>
-          <p>Features: DNS • MX • Pattern Analysis • Email Enrichment • Deliverability Scoring</p>
-          <div className="footer-lagic">
-            <p><strong>LAGIC</strong> - Lead Audience Growth Intelligence Computing</p>
-            <p>© 2025 LAGIC. All rights reserved.</p>
           </div>
-        </footer>
+          {/* End pro-content */}
+        </div>
+        {/* End pro-main-card */}
       </div>
+      {/* End pro-container */}
+
+      {/* Footer */}
+      <footer className="pro-footer">
+        <p><FiShield style={{display: 'inline', marginRight: '8px'}} /> Powered by RFC 5321 compliant validation engine with AI-powered analysis</p>
+        <p><FiAward style={{display: 'inline', marginRight: '8px'}} /> Features: DNS Verification • MX Records • Pattern Analysis • Email Enrichment • Deliverability Scoring • Disposable Detection</p>
+        <div className="pro-footer-lagic">
+          <p><strong>LAGIC</strong> - Lead Audience Growth Intelligence Computing</p>
+          <p>© 2025 LAGIC. All rights reserved. | Enterprise Email Validation Solution</p>
+        </div>
+      </footer>
     </div>
   );
 }
