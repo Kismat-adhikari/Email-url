@@ -620,16 +620,27 @@ function App() {
   };
 
   const getConfidenceColor = (score) => {
-    if (score >= 90) return '#10b981';
-    if (score >= 70) return '#f59e0b';
-    return '#ef4444';
+    if (score >= 95) return '#059669'; // Emerald for premium
+    if (score >= 85) return '#10b981'; // Green for excellent
+    if (score >= 70) return '#f59e0b'; // Amber for good
+    if (score >= 40) return '#f97316'; // Orange for fair
+    return '#ef4444'; // Red for poor
   };
 
   const getConfidenceLabel = (score) => {
-    if (score >= 90) return 'Excellent';
+    if (score >= 95) return 'Premium';
+    if (score >= 85) return 'Excellent';
     if (score >= 70) return 'Good';
-    if (score >= 50) return 'Fair';
+    if (score >= 40) return 'Fair';
     return 'Poor';
+  };
+
+  const getConfidenceTextColor = (score) => {
+    if (score >= 95) return '#064e3b'; // Darkest green for premium
+    if (score >= 85) return '#065f46'; // Dark green for excellent
+    if (score >= 70) return '#92400e'; // Dark amber for good
+    if (score >= 40) return '#b45309'; // Orange for fair
+    return '#991b1b'; // Dark red for poor
   };
 
 
@@ -706,57 +717,59 @@ function App() {
 
           {/* Content */}
           <div className="pro-content">
-            {/* Mode Selector */}
-            <div className="pro-mode-selector">
-              <div 
-                className={`pro-mode-option ${mode === 'basic' ? 'active' : ''}`}
-                onClick={() => {
-                  setMode('basic');
-                  setResult(null);
-                  setError(null);
-                }}
-              >
-                <input
-                  type="radio"
-                  className="pro-mode-radio"
-                  value="basic"
-                  checked={mode === 'basic'}
-                  onChange={(e) => {
-                    setMode(e.target.value);
+            {/* Mode Selector - Only show when NOT in history mode */}
+            {!historyMode && (
+              <div className="pro-mode-selector">
+                <div 
+                  className={`pro-mode-option ${mode === 'basic' ? 'active' : ''}`}
+                  onClick={() => {
+                    setMode('basic');
                     setResult(null);
                     setError(null);
                   }}
-                />
-                <div className="pro-mode-label">
-                  <div className="pro-mode-title"><FiZap style={{display: 'inline', marginRight: '8px'}} /> Basic Mode</div>
-                  <div className="pro-mode-desc">Syntax validation only - Lightning fast</div>
+                >
+                  <input
+                    type="radio"
+                    className="pro-mode-radio"
+                    value="basic"
+                    checked={mode === 'basic'}
+                    onChange={(e) => {
+                      setMode(e.target.value);
+                      setResult(null);
+                      setError(null);
+                    }}
+                  />
+                  <div className="pro-mode-label">
+                    <div className="pro-mode-title"><FiZap style={{display: 'inline', marginRight: '8px'}} /> Basic Mode</div>
+                    <div className="pro-mode-desc">Syntax validation only - Lightning fast</div>
+                  </div>
                 </div>
-              </div>
-              <div 
-                className={`pro-mode-option ${mode === 'advanced' ? 'active' : ''}`}
-                onClick={() => {
-                  setMode('advanced');
-                  setResult(null);
-                  setError(null);
-                }}
-              >
-                <input
-                  type="radio"
-                  className="pro-mode-radio"
-                  value="advanced"
-                  checked={mode === 'advanced'}
-                  onChange={(e) => {
-                    setMode(e.target.value);
+                <div 
+                  className={`pro-mode-option ${mode === 'advanced' ? 'active' : ''}`}
+                  onClick={() => {
+                    setMode('advanced');
                     setResult(null);
                     setError(null);
                   }}
-                />
-                <div className="pro-mode-label">
-                  <div className="pro-mode-title"><FiCpu style={{display: 'inline', marginRight: '8px'}} /> Advanced Mode</div>
-                  <div className="pro-mode-desc">Full validation - DNS, MX, Disposable, AI Analysis</div>
+                >
+                  <input
+                    type="radio"
+                    className="pro-mode-radio"
+                    value="advanced"
+                    checked={mode === 'advanced'}
+                    onChange={(e) => {
+                      setMode(e.target.value);
+                      setResult(null);
+                      setError(null);
+                    }}
+                  />
+                  <div className="pro-mode-label">
+                    <div className="pro-mode-title"><FiCpu style={{display: 'inline', marginRight: '8px'}} /> Advanced Mode</div>
+                    <div className="pro-mode-desc">Full validation - DNS, MX, Disposable, AI Analysis</div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
 
 
@@ -1040,7 +1053,11 @@ function App() {
                   {/* Confidence Score */}
                   <div className="pro-score-card confidence">
                     <div className="pro-score-label">Confidence Score</div>
-                    <div className="pro-score-value">{result.confidence_score || 0}<span style={{fontSize: '1.5rem', color: '#6b7280'}}>/100</span></div>
+                    <div className="pro-score-value" style={{
+                      color: getConfidenceTextColor(result.confidence_score || 0)
+                    }}>
+                      {result.confidence_score || 0}<span style={{fontSize: '1.5rem', color: '#6b7280'}}>/100</span>
+                    </div>
                     <div className="pro-score-bar">
                       <div
                         className="pro-score-bar-fill"
@@ -1050,7 +1067,19 @@ function App() {
                         }}
                       />
                     </div>
-                    <div className="pro-score-text">{getConfidenceLabel(result.confidence_score || 0)} Quality</div>
+                    <div className="pro-score-text" style={{
+                      color: getConfidenceTextColor(result.confidence_score || 0),
+                      fontWeight: '600'
+                    }}>
+                      {getConfidenceLabel(result.confidence_score || 0)} Quality
+                    </div>
+                    
+                    {/* Tiered Validation Info */}
+                    {result.tier && (
+                      <div className="tier-info" style={{marginTop: '12px', fontSize: '0.85rem', color: '#6b7280'}}>
+                        Validation Tier: <strong style={{textTransform: 'uppercase'}}>{result.tier}</strong>
+                      </div>
+                    )}
                   </div>
 
                   {/* Deliverability Score */}
@@ -1082,7 +1111,57 @@ function App() {
                   )}
                 </div>
 
-
+                {/* Confidence-Based Warning Banner */}
+                {result.confidence_score !== undefined && result.confidence_score < 70 && (
+                  <div className="confidence-warning-banner" style={{
+                    backgroundColor: result.confidence_score < 30 ? '#fee2e2' : '#fef3c7',
+                    border: `2px solid ${result.confidence_score < 30 ? '#ef4444' : '#f59e0b'}`,
+                    borderRadius: '12px',
+                    padding: '16px 20px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    <FiAlertTriangle style={{
+                      fontSize: '24px',
+                      color: result.confidence_score < 30 ? '#ef4444' : '#f59e0b',
+                      flexShrink: 0
+                    }} />
+                    <div>
+                      <div style={{
+                        fontWeight: '600',
+                        fontSize: '1rem',
+                        color: result.confidence_score < 30 ? '#991b1b' : '#92400e',
+                        marginBottom: '4px'
+                      }}>
+                        {result.confidence_score < 40 ? '⚠️ Critical: Bad Email Quality' : '⚠️ Warning: Low Confidence Email'}
+                      </div>
+                      <div style={{
+                        fontSize: '0.9rem',
+                        color: result.confidence_score < 30 ? '#7f1d1d' : '#78350f'
+                      }}>
+                        {result.confidence_score < 40 
+                          ? 'This email has very low confidence score. It is likely invalid or risky. We recommend not using this email address.'
+                          : 'This email has a low confidence score. Additional verification may be needed before using this address.'}
+                      </div>
+                      {result.tier && (
+                        <div style={{
+                          fontSize: '0.85rem',
+                          color: '#6b7280',
+                          marginTop: '8px',
+                          fontStyle: 'italic'
+                        }}>
+                          Applied {result.tier.toUpperCase()} tier validation - {
+                            result.tier === 'low' ? 'minimal filters (syntax only)' :
+                            result.tier === 'medium' ? 'moderate filters (DNS, MX, disposable)' :
+                            'all filters (DNS, MX, disposable, role-based, typo detection)'
+                          }
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {result.risk_check && result.risk_check.overall_risk !== 'low' && (
                   <div className={`risk-warning-section ${result.risk_check.overall_risk}`}>
@@ -1281,6 +1360,66 @@ function App() {
               </div>
               <div className="meta-info">
                 Processing time: {batchResults.processing_time}s
+                {batchResults.results && batchResults.results[0]?.batch_performance && (
+                  <div className="performance-metrics" style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <h4 style={{margin: '0 0 8px 0', fontSize: '0.9rem', color: '#374151'}}>
+                      ⚡ Performance Metrics
+                    </h4>
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px', fontSize: '0.85rem'}}>
+                      <div>
+                        <strong>Speed:</strong> {batchResults.results[0].batch_performance.emails_per_second} emails/sec
+                      </div>
+                      <div>
+                        <strong>Workers:</strong> {batchResults.results[0].batch_performance.parallel_workers_used}
+                      </div>
+                      {batchResults.results[0].batch_performance.dns_cache_hit_rate !== undefined && (
+                        <div>
+                          <strong>Cache Hit Rate:</strong> {batchResults.results[0].batch_performance.dns_cache_hit_rate}%
+                        </div>
+                      )}
+                      <div>
+                        <strong>Validity Rate:</strong> {batchResults.results[0].batch_performance.validity_rate}%
+                      </div>
+                    </div>
+                    
+                    {batchResults.results[0].batch_performance.tier_distribution && (
+                      <div style={{marginTop: '8px'}}>
+                        <strong>Tier Distribution:</strong>
+                        <div style={{display: 'flex', gap: '12px', marginTop: '4px', flexWrap: 'wrap'}}>
+                          {Object.entries(batchResults.results[0].batch_performance.tier_distribution).map(([tier, count]) => (
+                            <span key={tier} style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '0.8rem',
+                              backgroundColor: tier === 'premium' ? '#dcfce7' : 
+                                             tier === 'high' ? '#dbeafe' :
+                                             tier === 'medium' ? '#fef3c7' :
+                                             tier === 'basic' ? '#fed7aa' : '#fee2e2',
+                              color: tier === 'premium' ? '#166534' : 
+                                     tier === 'high' ? '#1e40af' :
+                                     tier === 'medium' ? '#92400e' :
+                                     tier === 'basic' ? '#c2410c' : '#991b1b'
+                            }}>
+                              {tier}: {count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {batchResults.results[0].batch_performance.dns_queries_saved > 0 && (
+                      <div style={{marginTop: '8px', color: '#059669', fontSize: '0.85rem'}}>
+                        💰 Saved {batchResults.results[0].batch_performance.dns_queries_saved} DNS queries through caching
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1400,9 +1539,32 @@ function App() {
                             }}
                           />
                         </div>
-                        <div className="confidence-value">
+                        <div className="confidence-value" style={{
+                          color: getConfidenceTextColor(item.confidence_score || 0),
+                          fontWeight: '600'
+                        }}>
                           {item.confidence_score || 0}/100 - {getConfidenceLabel(item.confidence_score || 0)}
                         </div>
+                        
+                        {/* Low Confidence Warning */}
+                        {item.confidence_score !== undefined && item.confidence_score < 70 && (
+                          <div style={{
+                            marginTop: '12px',
+                            padding: '10px 12px',
+                            backgroundColor: item.confidence_score < 40 ? '#fee2e2' : '#fef3c7',
+                            border: `1px solid ${item.confidence_score < 40 ? '#ef4444' : '#f59e0b'}`,
+                            borderRadius: '8px',
+                            fontSize: '0.85rem',
+                            color: item.confidence_score < 40 ? '#991b1b' : '#92400e'
+                          }}>
+                            <strong>{item.confidence_score < 40 ? '⚠️ Bad Email' : '⚠️ Low Confidence'}</strong>
+                            <div style={{marginTop: '4px', fontSize: '0.8rem'}}>
+                              {item.confidence_score < 40 
+                                ? 'Very low quality - not recommended for use'
+                                : 'Additional verification recommended'}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {item.deliverability && (

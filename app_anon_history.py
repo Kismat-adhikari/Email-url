@@ -6,7 +6,7 @@ Private history WITHOUT requiring user login
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from emailvalidator_unified import validate_email_advanced, validate_batch
+from emailvalidator_unified import validate_email_advanced, validate_email_tiered, validate_batch
 from email_validator_smtp import validate_email_with_smtp
 from supabase_storage import get_storage
 from email_enrichment import EmailEnrichment
@@ -338,17 +338,10 @@ def validate_email():
         
         logger.info(f"Validating email: {email} (user: {anon_user_id}, advanced: {advanced})")
         
-        # Validate email
+        # Validate email using TIERED system
         if advanced:
-            # Advanced without SMTP
-            result = validate_email_advanced(
-                email,
-                check_dns=True,
-                check_mx=True,
-                check_disposable=True,
-                check_typos=True,
-                check_role_based=True
-            )
+            # Use tiered validation - applies filters based on confidence
+            result = validate_email_tiered(email)
         else:
             # Basic validation
             from emailvalidator_unified import validate_email as validate_basic

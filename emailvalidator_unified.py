@@ -219,7 +219,7 @@ def _is_valid_domain_label(label: str) -> bool:
 
 def _check_dns_and_mx(domain: str) -> Tuple[bool, bool]:
     """
-    Check if domain has valid DNS records and MX records.
+    Check if domain has valid DNS records and MX records with caching.
     
     Args:
         domain: Domain name to check
@@ -228,35 +228,40 @@ def _check_dns_and_mx(domain: str) -> Tuple[bool, bool]:
         Tuple of (dns_valid, mx_valid) as booleans
     
     Note:
-        Gracefully handles all exceptions - never crashes on network errors
+        Uses DNS cache to avoid redundant lookups.
+        Gracefully handles all exceptions - never crashes on network errors.
     """
-    dns_valid = False
-    mx_valid = False
-    
-    # Check DNS resolution
+    # Import here to avoid circular imports
     try:
-        socket.gethostbyname(domain)
-        dns_valid = True
-    except (socket.gaierror, socket.herror, socket.timeout, OSError):
+        from dns_cache import check_dns_and_mx_cached
+        return check_dns_and_mx_cached(domain)
+    except ImportError:
+        # Fallback to original implementation if cache not available
         dns_valid = False
-    except Exception:
-        # Catch any other unexpected errors
-        dns_valid = False
-    
-    # Check MX records (only if DNS library is available)
-    if DNS_AVAILABLE:
+        mx_valid = False
+        
+        # Check DNS resolution
         try:
-            mx_records = dns.resolver.resolve(domain, 'MX')
-            mx_valid = len(mx_records) > 0
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
-            mx_valid = False
-        except dns.exception.Timeout:
-            mx_valid = False
+            socket.gethostbyname(domain)
+            dns_valid = True
+        except (socket.gaierror, socket.herror, socket.timeout, OSError):
+            dns_valid = False
         except Exception:
-            # Catch any other DNS-related errors
-            mx_valid = False
-    
-    return dns_valid, mx_valid
+            dns_valid = False
+        
+        # Check MX records (only if DNS library is available)
+        if DNS_AVAILABLE:
+            try:
+                mx_records = dns.resolver.resolve(domain, 'MX')
+                mx_valid = len(mx_records) > 0
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
+                mx_valid = False
+            except dns.exception.Timeout:
+                mx_valid = False
+            except Exception:
+                mx_valid = False
+        
+        return dns_valid, mx_valid
 
 
 def _is_disposable_email(domain: str) -> bool:
@@ -391,6 +396,133 @@ def _calculate_confidence_score(checks: Dict[str, bool]) -> int:
 # ============================================================================
 # ADVANCED VALIDATION - WITH DNS, MX, DISPOSABLE, TYPO DETECTION
 # ============================================================================
+
+def validate_email_tiered(
+    email: str,
+    initial_confidence: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Tiered validation system - applies filters based on confidence score.
+    
+    The higher the confidence, the MORE filters we apply to ensure accuracy:
+    - High confidence (90-100%): Apply ALL filters (DNS, MX, disposable, role-based, typos)
+    - Medium confidence (60-89%): Apply moderate filters (DNS, MX, disposable)
+    - Low confidence (<60%): Apply minimal filters (syntax only)
+    
+    This ensures we're thorough when we think an email is valid, but don't waste
+    resources on emails that are likely invalid anyway.
+    
+    Args:
+        email: Email address to validate
+        initial_confidence: Optional pre-calculated confidence score (0-100)
+                          If None, will do a quick preliminary check
+    
+    Returns:
+        Dictionary with validation results including:
+            - valid: bool - Overall validity
+            - email: str - Original email
+            - confidence_score: int - Final confidence score (0-100)
+            - tier: str - Which validation tier was applied
+            - checks: dict - All validation checks performed
+            - suggestion: str or None - Domain correction suggestion
+            - reason: str - Explanation of result
+    
+    Examples:
+        >>> # High confidence email gets full validation
+        >>> result = validate_email_tiered("user@gmail.com")
+        >>> result['tier']
+        'high'
+        >>> result['checks']  # All checks performed
+        {'syntax': True, 'dns_valid': True, 'mx_records': True, ...}
+        
+        >>> # Low confidence email gets minimal validation
+        >>> result = validate_email_tiered("invalid@@@")
+        >>> result['tier']
+        'low'
+        >>> result['checks']  # Only syntax check
+        {'syntax': False}
+    """
+    original_email = email
+    email = email.strip()
+    
+    # Step 1: Calculate preliminary confidence if not provided
+    if initial_confidence is None:
+        # Do a quick preliminary check to determine tier
+        preliminary_result = validate_email_advanced(
+            email,
+            check_dns=False,  # Quick check without network calls
+            check_mx=False,
+            check_disposable=True,  # Fast local check
+            check_typos=False,
+            check_role_based=True  # Fast local check
+        )
+        initial_confidence = preliminary_result['confidence_score']
+    
+    # Step 2: Determine validation tier based on confidence (5-tier system)
+    if initial_confidence >= 95:
+        tier = 'premium'
+        # Apply ALL filters + extra thorough checks
+        check_dns = True
+        check_mx = True
+        check_disposable = True
+        check_typos = True
+        check_role_based = True
+    elif initial_confidence >= 85:
+        tier = 'high'
+        # Apply ALL filters
+        check_dns = True
+        check_mx = True
+        check_disposable = True
+        check_typos = True
+        check_role_based = True
+    elif initial_confidence >= 70:
+        tier = 'medium'
+        # Apply core filters, skip expensive ones
+        check_dns = True
+        check_mx = True
+        check_disposable = True
+        check_typos = False
+        check_role_based = False
+    elif initial_confidence >= 40:
+        tier = 'basic'
+        # Apply essential filters only
+        check_dns = True
+        check_mx = False
+        check_disposable = True
+        check_typos = False
+        check_role_based = False
+    else:
+        tier = 'minimal'
+        # Apply minimal filters (syntax only)
+        check_dns = False
+        check_mx = False
+        check_disposable = False
+        check_typos = False
+        check_role_based = False
+    
+    # Step 3: Run full validation with appropriate filters
+    result = validate_email_advanced(
+        email,
+        check_dns=check_dns,
+        check_mx=check_mx,
+        check_disposable=check_disposable,
+        check_typos=check_typos,
+        check_role_based=check_role_based
+    )
+    
+    # Step 4: Add tier information to result
+    result['tier'] = tier
+    result['initial_confidence'] = initial_confidence
+    result['filters_applied'] = {
+        'dns': check_dns,
+        'mx': check_mx,
+        'disposable': check_disposable,
+        'typos': check_typos,
+        'role_based': check_role_based
+    }
+    
+    return result
+
 
 def validate_email_advanced(
     email: str,
@@ -550,6 +682,13 @@ def validate_email_advanced(
     
     result['reason'] = '; '.join(reasons) if reasons else 'Unknown'
     
+    # Add DNS cache statistics (optional)
+    try:
+        from dns_cache import get_cache_stats
+        result['cache_stats'] = get_cache_stats()
+    except ImportError:
+        pass
+    
     return result
 
 
@@ -561,6 +700,7 @@ def validate_batch(
     emails: List[str], 
     detailed: bool = False,
     advanced: bool = False,
+    optimize_order: bool = True,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
@@ -609,14 +749,25 @@ def validate_batch(
     
     count = len(emails)
     
-    # Choose strategy based on size
-    if count < THRESHOLD_PARALLEL:
-        # Sequential processing for small batches
+    # Optimize email order using domain analysis for better performance
+    original_emails = emails.copy()
+    if optimize_order and count > 5:
+        try:
+            from domain_analyzer import optimize_batch_order
+            emails, domain_stats = optimize_batch_order(emails)
+            print(f"Domain optimization: {domain_stats['total_domains']} unique domains, "
+                  f"{domain_stats['domain_validity_rate']}% valid")
+        except ImportError:
+            print("Domain analyzer not available, using original order")
+    
+    # Choose strategy based on size with improved thresholds
+    if count < 10:  # Lower threshold for parallel processing
+        # Sequential processing for very small batches
         results = []
         for email in emails:
             if advanced:
-                # Use advanced validation
-                result = validate_email_advanced(email, **kwargs)
+                # Use tiered validation
+                result = validate_email_tiered(email)
             else:
                 # Use basic validation
                 result = {'email': email, 'valid': validate_email(email)}
@@ -627,8 +778,57 @@ def validate_batch(
             results.append(result)
         return results
     else:
-        # Parallel processing for large batches
-        return _validate_parallel(emails, detailed, advanced, kwargs)
+        # Enhanced parallel processing for batches of 10+
+        import time
+        start_time = time.time()
+        
+        results = _validate_parallel(emails, detailed, advanced, kwargs)
+        
+        # Calculate performance metrics
+        processing_time = time.time() - start_time
+        emails_per_second = count / processing_time if processing_time > 0 else 0
+        
+        # Add performance metrics to results
+        performance_metrics = {
+            'total_emails': count,
+            'processing_time_seconds': round(processing_time, 3),
+            'emails_per_second': round(emails_per_second, 1),
+            'parallel_workers_used': min(multiprocessing.cpu_count() * 2, 20),
+            'optimization_applied': optimize_order and count > 5
+        }
+        
+        # Add DNS cache statistics if available
+        try:
+            from dns_cache import get_cache_stats
+            cache_stats = get_cache_stats()
+            performance_metrics['dns_cache_hit_rate'] = cache_stats.get('hit_rate_percent', 0)
+            performance_metrics['dns_queries_saved'] = cache_stats.get('cache_hits', 0)
+        except ImportError:
+            pass
+        
+        # Calculate tier distribution
+        tier_distribution = {}
+        valid_count = 0
+        for result in results:
+            tier = result.get('tier', 'unknown')
+            tier_distribution[tier] = tier_distribution.get(tier, 0) + 1
+            if result.get('valid'):
+                valid_count += 1
+        
+        performance_metrics['tier_distribution'] = tier_distribution
+        performance_metrics['validity_rate'] = round(valid_count / count * 100, 1) if count > 0 else 0
+        
+        # Restore original order if we optimized
+        if optimize_order and count > 5 and emails != original_emails:
+            email_to_result = {result['email']: result for result in results}
+            results = [email_to_result.get(email, {'email': email, 'valid': False, 'error': 'Not processed'}) 
+                      for email in original_emails]
+        
+        # Add performance metrics to the first result for easy access
+        if results:
+            results[0]['batch_performance'] = performance_metrics
+        
+        return results
 
 
 def _validate_parallel(
@@ -637,20 +837,115 @@ def _validate_parallel(
     advanced: bool,
     kwargs: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
-    """Parallel validation for large batches."""
-    workers = min(multiprocessing.cpu_count(), 8)  # Cap at 8 workers
-    chunk_size = max(1, len(emails) // (workers * 4))
-    chunks = [emails[i:i + chunk_size] for i in range(0, len(emails), chunk_size)]
+    """
+    Enhanced parallel validation with tier-aware processing.
+    
+    Uses ThreadPoolExecutor for I/O-bound DNS operations.
+    Processes emails in optimized chunks based on tier predictions.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+    
+    # Use threads instead of processes for I/O-bound DNS operations
+    workers = min(multiprocessing.cpu_count() * 2, 20)  # More threads for I/O
+    chunk_size = max(1, min(20, len(emails) // workers))  # Smaller chunks for better load balancing
+    
+    # Pre-sort emails by likely tier for better batching
+    sorted_emails = _presort_emails_by_tier(emails)
+    chunks = [sorted_emails[i:i + chunk_size] for i in range(0, len(sorted_emails), chunk_size)]
     
     results = []
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(_validate_chunk, chunk, detailed, advanced, kwargs): chunk 
-            for chunk in chunks
-        }
-        for future in as_completed(futures):
-            results.extend(future.result())
+    results_lock = threading.Lock()
     
+    def process_chunk_with_lock(chunk):
+        chunk_results = _validate_chunk_threaded(chunk, detailed, advanced, kwargs)
+        with results_lock:
+            results.extend(chunk_results)
+        return len(chunk_results)
+    
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(process_chunk_with_lock, chunk): chunk for chunk in chunks}
+        
+        for future in as_completed(futures):
+            try:
+                processed_count = future.result()
+            except Exception as e:
+                print(f"Chunk processing error: {e}")
+    
+    # Restore original order
+    email_to_result = {result['email']: result for result in results}
+    ordered_results = [email_to_result.get(email, {'email': email, 'valid': False, 'error': 'Processing failed'}) 
+                      for email in emails]
+    
+    return ordered_results
+
+def _presort_emails_by_tier(emails: List[str]) -> List[str]:
+    """
+    Pre-sort emails by predicted tier for better batch processing.
+    Put likely LOW tier emails first for faster rejection.
+    """
+    def predict_tier(email: str) -> int:
+        # Quick heuristics to predict tier without full validation
+        if not email or '@' not in email:
+            return 0  # Minimal tier
+        
+        try:
+            local, domain = email.split('@', 1)
+            
+            # Obviously bad patterns
+            if not local or not domain or '..' in email or email.startswith('.') or email.endswith('.'):
+                return 0  # Minimal
+            
+            # Common domains likely to be high tier
+            common_domains = {'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'}
+            if domain.lower() in common_domains:
+                return 4  # Premium/High
+            
+            # Role-based emails
+            role_prefixes = {'info', 'admin', 'support', 'sales', 'contact', 'help'}
+            if local.lower() in role_prefixes:
+                return 3  # Medium
+            
+            # Disposable domains (basic heuristics)
+            if 'temp' in domain.lower() or 'mail' in domain.lower() or len(domain.split('.')) > 3:
+                return 2  # Basic
+            
+            return 3  # Default to medium
+        except:
+            return 0  # Minimal if parsing fails
+    
+    # Sort by predicted tier (low to high for faster batch processing)
+    return sorted(emails, key=predict_tier)
+
+def _validate_chunk_threaded(
+    emails: List[str], 
+    detailed: bool,
+    advanced: bool,
+    kwargs: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Thread-safe chunk validation worker."""
+    results = []
+    for email in emails:
+        try:
+            if advanced:
+                # Use tiered validation
+                result = validate_email_tiered(email)
+            else:
+                # Use basic validation
+                result = {'email': email, 'valid': validate_email(email)}
+                if detailed:
+                    detailed_result = validate_email(email, detailed=True)
+                    if isinstance(detailed_result, dict):
+                        result.update(detailed_result)
+            results.append(result)
+        except Exception as e:
+            # Handle individual email errors gracefully
+            results.append({
+                'email': email,
+                'valid': False,
+                'error': str(e),
+                'confidence_score': 0
+            })
     return results
 
 
@@ -970,7 +1265,7 @@ def _parse_command_line_args() -> argparse.Namespace:
 # These functions are ready to import in your Flask app:
 # from emailvalidator_unified import validate_email, validate_email_advanced, validate_batch
 
-__all__ = ['validate_email', 'validate_email_advanced', 'validate_batch', 'validate_file']
+__all__ = ['validate_email', 'validate_email_advanced', 'validate_email_tiered', 'validate_batch', 'validate_file']
 
 
 if __name__ == "__main__":
