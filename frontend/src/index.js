@@ -5,6 +5,8 @@ import './index.css';
 import './ErrorBoundary.css';
 import App from './App';
 import Testing from './Testing';
+import Login from './Login';
+import Signup from './Signup';
 import ErrorBoundary from './ErrorBoundary';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -15,6 +17,8 @@ root.render(
         <Routes>
           <Route path="/" element={<App />} />
           <Route path="/testing" element={<Testing />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
         </Routes>
       </BrowserRouter>
     </ErrorBoundary>

@@ -61,6 +61,15 @@ function App() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [historyLoading, setHistoryLoading] = useState(false);
   
+  // Authentication state
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+  const [authToken, setAuthToken] = useState(() => {
+    return localStorage.getItem('authToken');
+  });
+  
   const [anonUserId] = useState(() => getAnonUserId());
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
@@ -71,12 +80,43 @@ function App() {
     ? ''
     : 'http://localhost:5000';
   
+  // Create API instance with dynamic headers
   const api = axios.create({
     baseURL: API_URL,
     headers: {
-      'X-User-ID': anonUserId
+      'X-User-ID': anonUserId,
+      ...(authToken && { 'Authorization': `Bearer ${authToken}` })
     }
   });
+
+  // Update API headers when auth token changes
+  useEffect(() => {
+    if (authToken) {
+      api.defaults.headers['Authorization'] = `Bearer ${authToken}`;
+    } else {
+      delete api.defaults.headers['Authorization'];
+    }
+  }, [authToken]);
+
+  // Logout function
+  const handleLogout = async () => {
+    try {
+      if (authToken) {
+        await api.post('/api/auth/logout');
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear local storage
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      setAuthToken(null);
+      setUser(null);
+      
+      // Redirect to landing page
+      window.location.href = '/testing';
+    }
+  };
 
   useEffect(() => {
     // Apply dark mode class
@@ -87,6 +127,24 @@ function App() {
     }
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
   }, [darkMode]);
+
+  useEffect(() => {
+    // Check for signup success message
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('signup') === 'success' && user) {
+      // Show welcome message
+      setTimeout(() => {
+        alert(`🎉 Welcome to EmailValidator, ${user.firstName}! Your account has been created successfully.`);
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }, 1000);
+    }
+    
+    // Reload history when user authentication changes
+    if (historyMode) {
+      loadHistory();
+    }
+  }, [user, historyMode]);
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
@@ -502,9 +560,20 @@ function App() {
     setHistoryLoading(true);
     try {
       const response = await api.get('/api/history?limit=100');
-      setHistory(response.data.history || []);
-      setFilteredHistory(response.data.history || []);
+      const historyData = response.data.history || [];
+      const userType = response.data.user_type || 'anonymous';
+      
+      setHistory(historyData);
+      setFilteredHistory(historyData);
+      
+      // Log for debugging
+      console.log(`📊 Loaded ${historyData.length} history records for ${userType} user`);
+      if (user && userType === 'authenticated') {
+        console.log(`👤 Showing history for: ${user.firstName} ${user.lastName}`);
+      }
+      
     } catch (err) {
+      console.error('History loading error:', err);
       setError('Failed to load history');
     } finally {
       setHistoryLoading(false);
@@ -647,26 +716,68 @@ function App() {
 
   return (
     <div className="App">
-      <div className="pro-container">
-        {/* Header */}
-        <header className="pro-header">
-          <div className="pro-header-top">
-            <button className="dark-mode-toggle" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+      {/* Top Navigation Bar */}
+      <nav className="top-navbar">
+        <div className="navbar-container">
+          {/* Logo Section */}
+          <div className="navbar-logo">
+            <span className="logo-text">LAGCI</span>
+          </div>
+
+          {/* Center Section - User Info */}
+          <div className="navbar-center">
+            {user && (
+              <div className="user-welcome">
+                <span className="welcome-text">👋 Welcome, {user.firstName}!</span>
+                <span className="user-tier-badge">{user.subscriptionTier.toUpperCase()}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Right Section - API Usage & Controls */}
+          <div className="navbar-right">
+            {/* Dark Mode Toggle */}
+            <button className="navbar-btn dark-mode-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
               {darkMode ? <FiSun /> : <FiMoon />}
             </button>
+
+            {/* API Usage Counter */}
+            {user ? (
+              <div className="api-usage-counter">
+                <FiActivity className="usage-icon" />
+                <span className="usage-text">{user.apiCallsCount || 0}/{user.apiCallsLimit}</span>
+                <span className="usage-label">API Calls</span>
+              </div>
+            ) : null}
+
+            {/* Authentication Buttons */}
+            {user ? (
+              <button className="navbar-btn logout-btn" onClick={handleLogout}>
+                Logout
+              </button>
+            ) : (
+              <div className="auth-buttons">
+                <button className="navbar-btn login-btn" onClick={() => navigate('/login')}>
+                  Login
+                </button>
+                <button className="navbar-btn signup-btn" onClick={() => navigate('/signup')}>
+                  Sign Up
+                </button>
+              </div>
+            )}
           </div>
+        </div>
+      </nav>
+
+      <div className="pro-container">
+        {/* Simplified Header */}
+        <header className="pro-header-simple">
           <div className="pro-header-title">
             <h1><FiMail /> Email Validator</h1>
-            <span className="lagic-badge-pro">LAGIC</span>
           </div>
           <p className="pro-header-subtitle">
             Enterprise-grade email validation with AI-powered analysis, DNS verification, and deliverability scoring
           </p>
-          <div className="pro-header-actions">
-            <button className="landing-btn-pro" onClick={() => navigate('/testing')}>
-              <FiTrendingUp /> View Landing Page
-            </button>
-          </div>
         </header>
 
         {/* Main Card */}
@@ -775,6 +886,27 @@ function App() {
 
         {historyMode ? (
           <div className="history-section">
+            {/* User-specific history header */}
+            <div className="history-header">
+              <h3 className="history-title">
+                <FiList style={{ marginRight: '8px' }} />
+                {user ? (
+                  <>Validation History for {user.firstName} {user.lastName}</>
+                ) : (
+                  <>Anonymous Validation History</>
+                )}
+              </h3>
+              <div className="history-stats">
+                <span className="history-count">
+                  {filteredHistory.length} record{filteredHistory.length !== 1 ? 's' : ''}
+                </span>
+                {user && (
+                  <span className="user-tier-indicator">
+                    {user.subscriptionTier.toUpperCase()} Account
+                  </span>
+                )}
+              </div>
+            </div>
             <div className="history-controls">
               <input
                 type="text"

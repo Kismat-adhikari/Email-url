@@ -18,6 +18,8 @@ import time
 import os
 import re
 import logging
+import jwt
+import bcrypt
 from functools import wraps
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -43,6 +45,11 @@ rate_limit_store = defaultdict(list)
 
 # Initialize components
 enricher = EmailEnrichment()
+
+# JWT Configuration
+JWT_SECRET = os.getenv('JWT_SECRET', 'your-super-secret-jwt-key-change-in-production')
+JWT_ALGORITHM = 'HS256'
+JWT_EXPIRATION_HOURS = 24
 
 # ============================================================================
 # DOMAIN STATISTICS HELPER
@@ -231,6 +238,70 @@ def rate_limit(f):
 
 
 # ============================================================================
+# AUTHENTICATION HELPERS
+# ============================================================================
+
+def hash_password(password: str) -> str:
+    """Hash password using bcrypt."""
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify password against hash."""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+
+def generate_jwt_token(user_data: dict) -> str:
+    """Generate JWT token for user."""
+    payload = {
+        'user_id': user_data['id'],
+        'email': user_data['email'],
+        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
+        'iat': datetime.utcnow()
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_jwt_token(token: str) -> dict:
+    """Verify and decode JWT token."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise ValueError('Token has expired')
+    except jwt.InvalidTokenError:
+        raise ValueError('Invalid token')
+
+
+def get_user_from_token():
+    """Extract user from JWT token in Authorization header."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        raise ValueError('Missing or invalid Authorization header')
+    
+    token = auth_header.split(' ')[1]
+    payload = verify_jwt_token(token)
+    return payload
+
+
+def auth_required(f):
+    """Decorator to require authentication."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            user = get_user_from_token()
+            request.current_user = user
+            return f(*args, **kwargs)
+        except ValueError as e:
+            return jsonify({
+                'error': 'Authentication required',
+                'message': str(e)
+            }), 401
+    return decorated_function
+
+
+# ============================================================================
 # API ENDPOINTS
 # ============================================================================
 
@@ -273,6 +344,336 @@ def health():
         'timestamp': time.time(),
         'version': '3.0.0'
     })
+
+
+# ============================================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+@app.route('/api/auth/signup', methods=['POST'])
+@rate_limit
+def signup():
+    """
+    User registration endpoint.
+    
+    Request body:
+        {
+            "firstName": "John",
+            "lastName": "Doe", 
+            "email": "john@example.com",
+            "password": "securepassword123"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "message": "Account created successfully",
+            "user": {
+                "id": "uuid",
+                "email": "john@example.com",
+                "firstName": "John",
+                "lastName": "Doe"
+            },
+            "token": "jwt_token"
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': 'Missing request data',
+                'message': 'Request body is required'
+            }), 400
+        
+        # Validate required fields
+        required_fields = ['firstName', 'lastName', 'email', 'password']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'error': f'Missing {field}',
+                    'message': f'{field} is required'
+                }), 400
+        
+        first_name = data['firstName'].strip()
+        last_name = data['lastName'].strip()
+        email = data['email'].strip().lower()
+        password = data['password']
+        
+        # Validate email format
+        if not validate_email_format(email):
+            return jsonify({
+                'error': 'Invalid email format',
+                'message': 'Please provide a valid email address'
+            }), 400
+        
+        # Validate password strength
+        if len(password) < 8:
+            return jsonify({
+                'error': 'Weak password',
+                'message': 'Password must be at least 8 characters long'
+            }), 400
+        
+        # Check if user already exists in database
+        storage = get_storage()
+        existing_user = storage.get_user_by_email(email)
+        if existing_user:
+            return jsonify({
+                'error': 'Email already registered',
+                'message': 'An account with this email already exists'
+            }), 409
+        
+        # Hash password
+        password_hash = hash_password(password)
+        
+        # Generate API key
+        import secrets
+        api_key = f"ev_{secrets.token_hex(32)}"
+        
+        # Create user in database with proper defaults
+        user_data = {
+            'email': email,
+            'password_hash': password_hash,
+            'first_name': first_name,
+            'last_name': last_name,
+            'api_key': api_key,
+            'subscription_tier': 'free',  # Default tier
+            'api_calls_count': 0,         # Start with 0 calls
+            'api_calls_limit': 1000,      # Free tier limit
+            'is_verified': False,
+            'is_active': True
+        }
+        
+        user = storage.create_user(user_data)
+        
+        logger.info(f"Created user: {email} with API key: {api_key[:10]}... and {user_data['api_calls_limit']} API calls limit")
+        
+        # Generate JWT token
+        token = generate_jwt_token(user)
+        
+        # Return success response (exclude sensitive data)
+        user_response = {
+            'id': user['id'],
+            'email': user['email'],
+            'firstName': user['first_name'],
+            'lastName': user['last_name'],
+            'subscriptionTier': user['subscription_tier'],
+            'apiCallsLimit': user['api_calls_limit'],
+            'createdAt': user['created_at']
+        }
+        
+        logger.info(f"New user registered: {email}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Account created successfully',
+            'user': user_response,
+            'token': token
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Signup failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Registration failed',
+            'message': 'An error occurred while creating your account'
+        }), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+@rate_limit
+def login():
+    """
+    User login endpoint.
+    
+    Request body:
+        {
+            "email": "john@example.com",
+            "password": "securepassword123"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "message": "Login successful",
+            "user": {
+                "id": "uuid",
+                "email": "john@example.com",
+                "firstName": "John",
+                "lastName": "Doe"
+            },
+            "token": "jwt_token"
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': 'Missing request data',
+                'message': 'Request body is required'
+            }), 400
+        
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        
+        if not email or not password:
+            return jsonify({
+                'error': 'Missing credentials',
+                'message': 'Email and password are required'
+            }), 400
+        
+        # Get user from database
+        storage = get_storage()
+        user = storage.get_user_by_email(email)
+        
+        if not user:
+            return jsonify({
+                'error': 'Invalid credentials',
+                'message': 'Email or password is incorrect'
+            }), 401
+        
+        # Check if account is active
+        if not user.get('is_active', True):
+            return jsonify({
+                'error': 'Account disabled',
+                'message': 'Your account has been disabled'
+            }), 401
+        
+        # Verify password
+        if not verify_password(password, user['password_hash']):
+            return jsonify({
+                'error': 'Invalid credentials',
+                'message': 'Email or password is incorrect'
+            }), 401
+        
+        # Update last login in database
+        storage.update_user_last_login(user['id'])
+        
+        # Generate JWT token
+        token = generate_jwt_token(user)
+        
+        # Return success response (exclude sensitive data)
+        user_response = {
+            'id': user['id'],
+            'email': user['email'],
+            'firstName': user['first_name'],
+            'lastName': user['last_name'],
+            'subscriptionTier': user['subscription_tier'],
+            'apiCallsLimit': user['api_calls_limit'],
+            'apiCallsCount': user['api_calls_count'],
+            'createdAt': user['created_at'],
+            'lastLogin': user.get('last_login')
+        }
+        
+        logger.info(f"User logged in: {email}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Login successful',
+            'user': user_response,
+            'token': token
+        })
+        
+    except Exception as e:
+        logger.error(f"Login failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Login failed',
+            'message': 'An error occurred during login'
+        }), 500
+
+
+@app.route('/api/auth/me', methods=['GET'])
+@auth_required
+def get_current_user():
+    """
+    Get current user profile.
+    
+    Headers:
+        Authorization: Bearer <jwt_token>
+    
+    Response:
+        {
+            "user": {
+                "id": "uuid",
+                "email": "john@example.com",
+                "firstName": "John",
+                "lastName": "Doe",
+                ...
+            }
+        }
+    """
+    try:
+        user_id = request.current_user['user_id']
+        
+        # Get user from database
+        storage = get_storage()
+        user = storage.get_user_by_id(user_id)
+        
+        if not user:
+            return jsonify({
+                'error': 'User not found',
+                'message': 'User account no longer exists'
+            }), 404
+        
+        # Return user data (exclude sensitive fields)
+        user_response = {
+            'id': user['id'],
+            'email': user['email'],
+            'firstName': user['first_name'],
+            'lastName': user['last_name'],
+            'subscriptionTier': user['subscription_tier'],
+            'apiKey': user.get('api_key'),
+            'apiCallsLimit': user['api_calls_limit'],
+            'apiCallsCount': user['api_calls_count'],
+            'isVerified': user['is_verified'],
+            'createdAt': user['created_at'],
+            'lastLogin': user.get('last_login')
+        }
+        
+        return jsonify({
+            'user': user_response
+        })
+        
+    except Exception as e:
+        logger.error(f"Get current user failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to get user profile',
+            'message': 'An error occurred while fetching user data'
+        }), 500
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+@auth_required
+def logout():
+    """
+    User logout endpoint.
+    
+    Headers:
+        Authorization: Bearer <jwt_token>
+    
+    Response:
+        {
+            "success": true,
+            "message": "Logged out successfully"
+        }
+    """
+    try:
+        # In a more complex system, you might want to blacklist the token
+        # For now, we'll just return success since JWT tokens are stateless
+        
+        logger.info(f"User logged out: {request.current_user['email']}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Logged out successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Logout failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Logout failed',
+            'message': 'An error occurred during logout'
+        }), 500
 
 
 @app.route('/api/validate', methods=['POST'])
@@ -421,11 +822,41 @@ def validate_email():
             logger.error(f"Email enrichment failed: {str(e)}")
             result['enrichment'] = {'error': str(e)}
         
-        # Store in database with anonymous user ID
+        # Store in database with user tracking
         try:
             storage = get_storage()
+            
+            # Check if user is authenticated and handle API limits
+            user_id = None
+            authenticated_user = None
+            try:
+                auth_header = request.headers.get('Authorization')
+                if auth_header and auth_header.startswith('Bearer '):
+                    token = auth_header.split(' ')[1]
+                    payload = verify_jwt_token(token)
+                    user_id = payload.get('user_id')
+                    
+                    # Get user details for API limiting
+                    authenticated_user = storage.get_user_by_id(user_id)
+                    if authenticated_user:
+                        # Check API limits
+                        if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+                            return jsonify({
+                                'error': 'API limit exceeded',
+                                'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
+                                'current_usage': authenticated_user['api_calls_count'],
+                                'limit': authenticated_user['api_calls_limit']
+                            }), 429
+                        
+                        logger.info(f"Authenticated user {user_id} ({authenticated_user['email']}) validating email: {email} - Usage: {authenticated_user['api_calls_count']}/{authenticated_user['api_calls_limit']}")
+            except Exception as e:
+                # Not authenticated, use anonymous tracking
+                logger.debug(f"No authentication or invalid token: {str(e)}")
+                pass
+            
             record = storage.create_record({
                 'anon_user_id': anon_user_id,
+                'user_id': user_id,  # Will be None for anonymous users
                 'email': email,
                 'valid': result['valid'],
                 'confidence_score': result.get('confidence_score', 0),
@@ -437,6 +868,21 @@ def validate_email():
             })
             result['record_id'] = record['id']
             result['stored'] = True
+            
+            # Increment API usage for authenticated users
+            if authenticated_user:
+                try:
+                    storage.increment_api_usage(user_id, 1)
+                    new_count = authenticated_user['api_calls_count'] + 1
+                    result['api_usage'] = {
+                        'calls_used': new_count,
+                        'calls_limit': authenticated_user['api_calls_limit'],
+                        'calls_remaining': authenticated_user['api_calls_limit'] - new_count
+                    }
+                    logger.info(f"API usage incremented for user {user_id}: {new_count}/{authenticated_user['api_calls_limit']}")
+                except Exception as e:
+                    logger.error(f"Failed to increment API usage: {str(e)}")
+            
             logger.info(f"Validation stored: {email} (valid: {result['valid']}, score: {result.get('confidence_score')})")
         except Exception as e:
             logger.error(f"Storage failed: {str(e)}")
@@ -612,13 +1058,28 @@ def validate_batch_endpoint():
         
         processing_time = time.time() - start_time
         
-        # Store results with anonymous user ID
+        # Store results with user tracking
         storage = get_storage()
         stored_count = 0
+        
+        # Check if user is authenticated
+        user_id = None
+        try:
+            auth_header = request.headers.get('Authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                payload = verify_jwt_token(token)
+                user_id = payload.get('user_id')
+                logger.info(f"Authenticated user {user_id} batch validating {len(results)} emails")
+        except Exception:
+            # Not authenticated, use anonymous tracking
+            pass
+        
         for result in results:
             try:
                 record = storage.create_record({
                     'anon_user_id': anon_user_id,
+                    'user_id': user_id,  # Will be None for anonymous users
                     'email': result['email'],
                     'valid': result['valid'],
                     'confidence_score': result.get('confidence_score', 40 if result['valid'] else 0),
@@ -904,11 +1365,14 @@ def validate_batch_stream():
 @app.route('/api/history', methods=['GET'])
 def get_history():
     """
-    Get validation history for the anonymous user.
-    Returns ONLY records belonging to the requesting user.
+    Get validation history for the user.
+    Returns records based on authentication status:
+    - Authenticated users: Get their user-specific history
+    - Anonymous users: Get their anonymous history
     
     Headers:
         X-User-ID: Anonymous user ID (required)
+        Authorization: Bearer <token> (optional, for authenticated users)
     
     Query params:
         - limit: Number of records (default: 100, max: 1000)
@@ -919,16 +1383,8 @@ def get_history():
             "total": 50,
             "limit": 100,
             "offset": 0,
-            "history": [
-                {
-                    "id": 123,
-                    "email": "user@example.com",
-                    "valid": true,
-                    "confidence_score": 95,
-                    "validated_at": "2024-01-01T12:00:00",
-                    ...
-                }
-            ]
+            "history": [...],
+            "user_type": "authenticated" | "anonymous"
         }
     """
     try:
@@ -945,18 +1401,41 @@ def get_history():
         limit = min(int(request.args.get('limit', 100)), 1000)
         offset = int(request.args.get('offset', 0))
         
-        # Fetch user-specific history
         storage = get_storage()
-        history = storage.get_user_history(anon_user_id, limit=limit, offset=offset)
+        
+        # Check if user is authenticated
+        user_id = None
+        user_type = "anonymous"
+        try:
+            auth_header = request.headers.get('Authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                payload = verify_jwt_token(token)
+                user_id = payload.get('user_id')
+                user_type = "authenticated"
+                logger.info(f"Fetching history for authenticated user: {user_id}")
+        except Exception:
+            # Not authenticated, use anonymous tracking
+            logger.info(f"Fetching history for anonymous user: {anon_user_id}")
+        
+        # Fetch appropriate history based on authentication
+        if user_id:
+            # Authenticated user - get their specific history
+            history = storage.get_authenticated_user_history(user_id, limit=limit, offset=offset)
+        else:
+            # Anonymous user - get anonymous history
+            history = storage.get_user_history(anon_user_id, limit=limit, offset=offset)
         
         return jsonify({
             'total': len(history),
             'limit': limit,
             'offset': offset,
-            'history': history
+            'history': history,
+            'user_type': user_type
         })
         
     except Exception as e:
+        logger.error(f"Failed to fetch history: {str(e)}", exc_info=True)
         return jsonify({
             'error': 'Failed to fetch history',
             'message': str(e)

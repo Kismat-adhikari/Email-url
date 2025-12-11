@@ -5,7 +5,7 @@ Handles all database operations for storing and retrieving validation data
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -105,6 +105,7 @@ class SupabaseStorage:
         # Prepare record
         record = {
             'anon_user_id': validation_data['anon_user_id'],
+            'user_id': validation_data.get('user_id'),  # Optional - for authenticated users
             'email': validation_data['email'].lower().strip(),
             'valid': validation_data['valid'],
             'confidence_score': validation_data['confidence_score'],
@@ -676,6 +677,363 @@ class SupabaseStorage:
             
         except Exception as e:
             raise Exception(f"Failed to count user records: {str(e)}")
+    
+    def get_authenticated_user_history(
+        self,
+        user_id: str,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get validation history for an authenticated user by their actual user ID.
+        
+        Args:
+            user_id: Authenticated user ID (UUID from users table)
+            limit: Maximum number of records (default: 100)
+            offset: Pagination offset (default: 0)
+        
+        Returns:
+            List of validation records for this authenticated user
+        
+        Example:
+            >>> storage = SupabaseStorage()
+            >>> history = storage.get_authenticated_user_history('user-uuid-123', limit=50)
+            >>> print(f"User has {len(history)} validations")
+        """
+        try:
+            response = self.client.table(self.table_name)\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('validated_at', desc=True)\
+                .range(offset, offset + limit - 1)\
+                .execute()
+            
+            return response.data or []
+            
+        except Exception as e:
+            raise Exception(f"Failed to fetch authenticated user history: {str(e)}")
+    
+    def get_authenticated_user_analytics(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get analytics for an authenticated user by their actual user ID.
+        
+        Args:
+            user_id: Authenticated user ID (UUID from users table)
+        
+        Returns:
+            Dictionary with user-specific statistics
+        
+        Example:
+            >>> storage = SupabaseStorage()
+            >>> analytics = storage.get_authenticated_user_analytics('user-uuid-123')
+            >>> print(f"Total: {analytics['total_validations']}")
+        """
+        try:
+            # Get all records for this authenticated user
+            response = self.client.table(self.table_name)\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .execute()
+            
+            records = response.data or []
+            
+            if not records:
+                return {
+                    'total_validations': 0,
+                    'valid_count': 0,
+                    'invalid_count': 0,
+                    'avg_confidence': 0,
+                    'message': 'No validation data available for this user'
+                }
+            
+            total = len(records)
+            valid_count = sum(1 for r in records if r.get('valid'))
+            invalid_count = total - valid_count
+            avg_confidence = sum(r.get('confidence_score', 0) for r in records) / total
+            
+            # Domain analysis
+            domain_counts = {}
+            domain_types = {}
+            
+            for record in records:
+                email = record.get('email', '')
+                if '@' in email:
+                    domain = email.split('@')[1]
+                    domain_counts[domain] = domain_counts.get(domain, 0) + 1
+                
+                checks = record.get('checks', {})
+                if isinstance(checks, dict):
+                    if checks.get('is_disposable'):
+                        domain_types['Disposable'] = domain_types.get('Disposable', 0) + 1
+                    elif checks.get('is_role_based'):
+                        domain_types['Role-based'] = domain_types.get('Role-based', 0) + 1
+                    else:
+                        domain_types['Personal'] = domain_types.get('Personal', 0) + 1
+            
+            # Top domains
+            top_domains = [
+                {'domain': domain, 'count': count}
+                for domain, count in sorted(
+                    domain_counts.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:10]
+            ]
+            
+            return {
+                'total_validations': total,
+                'valid_count': valid_count,
+                'invalid_count': invalid_count,
+                'avg_confidence': round(avg_confidence, 2),
+                'disposable_count': sum(1 for r in records if r.get('is_disposable')),
+                'role_based_count': sum(1 for r in records if r.get('is_role_based')),
+                'domain_types': domain_types,
+                'top_domains': top_domains
+            }
+            
+        except Exception as e:
+            raise Exception(f"Failed to get authenticated user analytics: {str(e)}")
+    
+    # ========================================================================
+    # USER AUTHENTICATION METHODS
+    # ========================================================================
+    
+    def create_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new user account.
+        
+        Args:
+            user_data: Dictionary containing user information:
+                - email (required): User email
+                - password_hash (required): Hashed password
+                - first_name (required): First name
+                - last_name (required): Last name
+                - api_key (optional): API key
+                - subscription_tier (optional): Subscription tier
+                - api_calls_limit (optional): API calls limit
+                - is_verified (optional): Email verification status
+                - is_active (optional): Account active status
+        
+        Returns:
+            Created user record
+        
+        Raises:
+            Exception: If user creation fails
+        """
+        try:
+            # Prepare user record
+            record = {
+                'email': user_data['email'].lower().strip(),
+                'password_hash': user_data['password_hash'],
+                'first_name': user_data['first_name'].strip(),
+                'last_name': user_data['last_name'].strip(),
+                'api_key': user_data.get('api_key'),
+                'subscription_tier': user_data.get('subscription_tier', 'free'),
+                'api_calls_limit': user_data.get('api_calls_limit', 1000),
+                'api_calls_count': 0,
+                'is_verified': user_data.get('is_verified', False),
+                'is_active': user_data.get('is_active', True),
+                'is_banned': False,
+                'created_at': datetime.utcnow().isoformat(),
+                'updated_at': datetime.utcnow().isoformat()
+            }
+            
+            response = self.client.table('users').insert(record).execute()
+            
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from user creation")
+                
+        except Exception as e:
+            raise Exception(f"Failed to create user: {str(e)}")
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user by email address.
+        
+        Args:
+            email: User email address
+        
+        Returns:
+            User record or None if not found
+        """
+        try:
+            response = self.client.table('users')\
+                .select('*')\
+                .eq('email', email.lower().strip())\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+            
+        except Exception as e:
+            raise Exception(f"Failed to get user by email: {str(e)}")
+    
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user by ID.
+        
+        Args:
+            user_id: User ID (UUID)
+        
+        Returns:
+            User record or None if not found
+        """
+        try:
+            response = self.client.table('users')\
+                .select('*')\
+                .eq('id', user_id)\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+            
+        except Exception as e:
+            raise Exception(f"Failed to get user by ID: {str(e)}")
+    
+    def update_user_last_login(self, user_id: str) -> bool:
+        """
+        Update user's last login timestamp.
+        
+        Args:
+            user_id: User ID
+        
+        Returns:
+            True if updated successfully
+        """
+        try:
+            updates = {
+                'last_login': datetime.utcnow().isoformat(),
+                'updated_at': datetime.utcnow().isoformat()
+            }
+            
+            response = self.client.table('users')\
+                .update(updates)\
+                .eq('id', user_id)\
+                .execute()
+            
+            return True
+            
+        except Exception as e:
+            raise Exception(f"Failed to update last login: {str(e)}")
+    
+    def update_user(self, user_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update user information.
+        
+        Args:
+            user_id: User ID
+            updates: Dictionary with fields to update
+        
+        Returns:
+            Updated user record
+        """
+        try:
+            # Add update timestamp
+            updates['updated_at'] = datetime.utcnow().isoformat()
+            
+            response = self.client.table('users')\
+                .update(updates)\
+                .eq('id', user_id)\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception(f"User with ID {user_id} not found")
+                
+        except Exception as e:
+            raise Exception(f"Failed to update user: {str(e)}")
+    
+    def increment_api_usage(self, user_id: str, count: int = 1) -> bool:
+        """
+        Increment user's API usage count.
+        
+        Args:
+            user_id: User ID
+            count: Number of API calls to add (default: 1)
+        
+        Returns:
+            True if updated successfully
+        """
+        try:
+            # Get current count
+            user = self.get_user_by_id(user_id)
+            if not user:
+                raise Exception(f"User {user_id} not found")
+            
+            new_count = user.get('api_calls_count', 0) + count
+            
+            updates = {
+                'api_calls_count': new_count,
+                'updated_at': datetime.utcnow().isoformat()
+            }
+            
+            response = self.client.table('users')\
+                .update(updates)\
+                .eq('id', user_id)\
+                .execute()
+            
+            return True
+            
+        except Exception as e:
+            raise Exception(f"Failed to increment API usage: {str(e)}")
+    
+    def check_api_limit(self, user_id: str) -> bool:
+        """
+        Check if user has remaining API calls.
+        
+        Args:
+            user_id: User ID
+        
+        Returns:
+            True if user has remaining API calls
+        """
+        try:
+            user = self.get_user_by_id(user_id)
+            if not user:
+                return False
+            
+            if not user.get('is_active', True) or user.get('is_banned', False):
+                return False
+            
+            current_calls = user.get('api_calls_count', 0)
+            call_limit = user.get('api_calls_limit', 1000)
+            
+            return current_calls < call_limit
+            
+        except Exception as e:
+            raise Exception(f"Failed to check API limit: {str(e)}")
+    
+    def reset_monthly_api_calls(self, user_id: str) -> bool:
+        """
+        Reset user's monthly API call count.
+        
+        Args:
+            user_id: User ID
+        
+        Returns:
+            True if reset successfully
+        """
+        try:
+            updates = {
+                'api_calls_count': 0,
+                'api_calls_reset_date': (datetime.utcnow() + timedelta(days=30)).isoformat(),
+                'updated_at': datetime.utcnow().isoformat()
+            }
+            
+            response = self.client.table('users')\
+                .update(updates)\
+                .eq('id', user_id)\
+                .execute()
+            
+            return True
+            
+        except Exception as e:
+            raise Exception(f"Failed to reset API calls: {str(e)}")
 
 
 # Convenience function for quick access

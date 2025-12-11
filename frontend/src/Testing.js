@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Shield, Zap, Database, Check, X, ChevronDown, ArrowRight, Sparkles, Lock, Globe } from 'lucide-react';
+import { Mail, Shield, Zap, Database, Check, X, ChevronDown, ArrowRight, Sparkles, Lock, Globe, User, LogIn } from 'lucide-react';
 
 function Testing() {
   const [email, setEmail] = useState('');
@@ -93,6 +93,143 @@ function Testing() {
 
   return (
     <div style={{ background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 50%, #f1f5f9 100%)', color: '#1e293b', minHeight: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      
+      {/* Navigation Bar */}
+      <nav style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        background: 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(10px)',
+        borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
+        padding: '12px 0'
+      }}>
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto',
+          padding: '0 24px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          {/* Logo */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            fontSize: '1.5rem',
+            fontWeight: '700',
+            color: '#1e293b'
+          }}>
+            <Mail style={{ width: '32px', height: '32px', color: '#3b82f6' }} />
+            <span>EmailValidator</span>
+            <span style={{
+              background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              fontSize: '0.75rem',
+              fontWeight: '600',
+              padding: '2px 8px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              marginLeft: '8px'
+            }}>
+              PRO
+            </span>
+          </div>
+
+          {/* Navigation Links */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '32px'
+          }}>
+            <a href="#features" style={{
+              color: '#64748b',
+              textDecoration: 'none',
+              fontWeight: '500',
+              transition: 'color 0.2s'
+            }}>Features</a>
+            <a href="#pricing" style={{
+              color: '#64748b',
+              textDecoration: 'none',
+              fontWeight: '500',
+              transition: 'color 0.2s'
+            }}>Pricing</a>
+            <a href="#api" style={{
+              color: '#64748b',
+              textDecoration: 'none',
+              fontWeight: '500',
+              transition: 'color 0.2s'
+            }}>API</a>
+
+            {/* Auth Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button 
+                onClick={() => window.location.href = '/login'}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #e2e8f0',
+                  color: '#64748b',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '0.9rem',
+                  fontWeight: '500',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.color = '#3b82f6';
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.color = '#64748b';
+                }}
+              >
+                <LogIn style={{ width: '16px', height: '16px' }} />
+                Login
+              </button>
+              
+              <button 
+                onClick={() => window.location.href = '/signup'}
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                  border: 'none',
+                  color: 'white',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '0.9rem',
+                  fontWeight: '500',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.transform = 'translateY(-1px)';
+                  e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)';
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
+                }}
+              >
+                <User style={{ width: '16px', height: '16px' }} />
+                Sign Up
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
       {/* Hero Section */}
       <section 
         onMouseMove={handleMouseMove}
@@ -102,7 +239,8 @@ function Testing() {
           alignItems: 'center',
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           position: 'relative',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          paddingTop: '80px'
         }}
       >
         <div style={{
