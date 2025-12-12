@@ -1,291 +1,147 @@
-# 📧 Email Validator - Full Stack Application
+# Email Validator Platform
 
-A production-ready email validation platform with React frontend and Flask backend, featuring anonymous user history, risk scoring, and email enrichment.
+A professional email validation platform with real-time suspension system, admin dashboard, and comprehensive validation features.
 
-## 🌟 Features
+## 🚀 Features
 
-### Validation
-- ✅ **RFC 5321 Syntax Validation** - Comprehensive email format checking
-- ✅ **DNS/MX Record Verification** - Check if domain exists and accepts mail
-- ✅ **SMTP Mailbox Verification** - Verify actual mailbox existence
-- ✅ **Disposable Email Detection** - Identify temporary email services
-- ✅ **Role-based Email Detection** - Flag generic addresses (info@, admin@)
-- ✅ **Typo Suggestions** - Smart corrections for common domain typos
-- ✅ **Catch-all Domain Detection** - Identify domains that accept all emails
+### Core Validation
+- **Advanced Email Validation** - Syntax, DNS, MX records, deliverability scoring
+- **SMTP Verification** - Real-time SMTP checks
+- **Risk Assessment** - Spam trap detection, disposable email detection
+- **Batch Processing** - Validate multiple emails with real-time streaming
+- **Pattern Analysis** - Advanced email pattern recognition
 
-### Intelligence & Risk Management
-- 🎯 **Risk Scoring (0-100)** - Assess email deliverability risk
-- 📊 **Email Enrichment** - Domain classification, geolocation, engagement scoring
-- 📈 **Confidence Scoring** - Multi-factor validation confidence rating
-- 🚫 **Advanced Bounce Tracking** - Real-time bounce monitoring and history
-- ⚠️ **Bounce Risk Assessment** - Automatic risk categorization (low/medium/high/critical)
-- 📡 **Webhook Integration** - SendGrid, Mailgun, and custom ESP support
-- 🔄 **Automated Bounce Recording** - Seamless integration with email service providers
+### User Management
+- **Free Tier** - 10 validations per user
+- **Authentication System** - JWT-based secure login
+- **Real-time Monitoring** - 2-second status checks
+- **API Usage Tracking** - Real-time usage counters
 
-### User Experience
-- 🔐 **Anonymous User History** - Private history without login (localStorage UUID)
-- 📱 **Modern React Dashboard** - Clean, responsive UI with dark mode
-- 📦 **Batch Processing** - Validate multiple emails at once
-- 📁 **File Upload Support** - Upload .txt files for bulk validation
-- 💾 **Supabase Integration** - Persistent storage with analytics
-- 🎛️ **Bounce Management Dashboard** - Monitor and manage bounce activity
+### Admin Dashboard
+- **Real-time Statistics** - Live user counts, validation metrics
+- **User Management** - View, suspend, unsuspend users
+- **Activity Logging** - Complete audit trail
+- **Instant Suspension** - Real-time account suspension with immediate enforcement
 
-## 🚀 Quick Start
+### Security Features
+- **Real-time Suspension Detection** - Users logged out within 2 seconds
+- **Enhanced Login Protection** - Detailed suspension error messages
+- **Admin Authentication** - Secure admin panel access
+- **Rate Limiting** - API protection against abuse
 
-### 1. Install Dependencies
+## 🛠️ Tech Stack
 
+### Backend
+- **Python Flask** - Main API server
+- **Supabase** - Database and authentication
+- **JWT** - Secure token-based authentication
+- **Real-time APIs** - WebSocket-like streaming for batch validation
+
+### Frontend
+- **React** - Modern UI framework
+- **Professional Design** - Glassmorphic dark/light themes
+- **Real-time Updates** - Live status monitoring
+- **Responsive Design** - Mobile-friendly interface
+
+## 🚀 Deployment
+
+### Environment Variables
 ```bash
-# Backend
-pip install -r requirements.txt
+# Supabase Configuration
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
 
-# Frontend
-cd frontend
-npm install
-cd ..
+# JWT Secret
+JWT_SECRET=your_jwt_secret_key
+
+# Admin JWT Secret  
+ADMIN_JWT_SECRET=your_admin_jwt_secret
+
+# Optional: SendGrid for email sending
+SENDGRID_API_KEY=your_sendgrid_key
 ```
 
-### 2. Configure Supabase
+### Render Deployment
+1. Connect your GitHub repository to Render
+2. Set environment variables in Render dashboard
+3. Deploy automatically with `render.yaml` configuration
 
-Create a `.env` file:
-
-```bash
-SUPABASE_URL=your_project_url
-SUPABASE_KEY=your_anon_key
-SUPABASE_TABLE_NAME=email_validations
-```
-
-### 3. Setup Database
-
-Run the SQL schema in your Supabase project:
-
+### Database Setup
+Run the SQL schema in your Supabase dashboard:
 ```sql
--- See supabase_schema.sql for complete schema
--- Then run supabase_migration_anon_id.sql for anonymous user support
+-- Use complete_fresh_schema.sql for full setup
+-- Or supabase_schema.sql for basic setup
 ```
 
-### 4. Start the Application
+## 📊 Admin Access
 
-**Option A: Complete System (Recommended)**
-```bash
-# Starts main API + bounce service + frontend
-start_complete_system.bat
-```
+### Default Admin Credentials
+- **Email**: `admin@emailvalidator.com`
+- **Password**: `admin123`
+- **⚠️ Change immediately after first login**
 
-**Option B: Individual Services**
-```bash
-# Terminal 1 - Main API
-python app_anon_history.py
+### Admin Features
+- Real-time user statistics
+- User suspension/unsuspension
+- Activity monitoring
+- System health dashboard
 
-# Terminal 2 - Frontend (if developing)
-cd frontend && npm start
+## 🔧 API Endpoints
 
-# Terminal 3 - Frontend
-cd frontend
-npm start
-```
-
-**Option C: Legacy (Main API only)**
-```bash
-START_ANON_HISTORY.bat
-```
-
-### 5. Open Your Browser
-
-- **Frontend**: http://localhost:3000
-- **Main API**: http://localhost:5000  
-- **Bounce Service**: http://localhost:5001
-
-## 🎯 API Endpoints
-
-### Email Validation
-```bash
-# Single email validation
-POST /api/validate
-Body: { "email": "test@example.com" }
-
-# Advanced validation with all checks
-POST /api/validate/advanced  
-Body: { "email": "test@example.com" }
-
-# Batch validation
-POST /api/validate/batch
-Body: { "emails": ["email1@test.com", "email2@test.com"] }
-
-# Get validation history
-GET /api/history
-Headers: X-User-ID: <anonymous_user_id>
-```
-
-### Bounce Management
-```bash
-# Get bounce statistics
-GET /api/bounce/stats
-
-# Record bounce manually
-POST /api/bounce/record
-Body: { "email": "user@example.com", "bounce_type": "hard", "reason": "Domain not found" }
-
-# Get bounce history for email
-GET /api/bounce/history/<email>
-```
-
-### Bounce Webhooks (Port 5001)
-```bash
-# SendGrid bounce webhook
-POST /webhook/sendgrid/bounce
-
-# Mailgun bounce webhook  
-POST /webhook/mailgun/bounce
-
-# Generic bounce webhook
-POST /webhook/generic/bounce
-Body: { "email": "user@example.com", "bounce_type": "hard", "reason": "550 User unknown" }
-
-# Test bounce webhook
-POST /webhook/test
-Body: { "email": "test@example.com", "bounce_type": "hard", "reason": "Test bounce" }
-
-# Webhook service stats
-GET /webhook/stats
-```
-
-## 📁 Project Structure
-
-```
-email-validator/
-├── app_anon_history.py          # Main Flask API with anonymous history
-├── emailvalidator_unified.py    # Core validation engine
-├── email_validator_smtp.py      # SMTP verification
-├── email_sender.py              # Email sending with integrated bounce tracking (NEW)
-├── risk_scoring.py              # Risk assessment engine
-├── email_enrichment.py          # Domain enrichment
-├── supabase_storage.py          # Database operations
-├── start_complete_system.bat    # Complete system startup (NEW)
-├── start_bounce_service.bat     # Bounce service startup (NEW)
-├── BOUNCE_TRACKING_GUIDE.md     # Bounce tracking documentation (NEW)
-├── .env                         # Configuration (create this)
-├── requirements.txt             # Python dependencies
-├── supabase_schema.sql          # Database schema
-├── supabase_migration_anon_id.sql  # Anonymous user migration
-├── README.md                    # This file
-└── frontend/                    # React application
-    ├── src/
-    │   ├── App.js              # Main React component
-    │   ├── BounceManager.js    # Bounce management dashboard (NEW)
-    │   ├── BounceManager.css   # Bounce dashboard styling (NEW)
-    │   └── App.css             # Styling
-    ├── public/
-    └── package.json
-```
-
-## 🚫 Bounce Tracking System
-
-### Quick Start
-```bash
-# Test integrated bounce tracking
-curl -X POST http://localhost:5000/webhook/test/bounce \
-     -H "Content-Type: application/json" \
-     -d '{"email": "test@example.com", "bounce_type": "hard", "reason": "Test bounce"}'
-python manage_bounces.py record test@invalid.com --type hard --reason "Domain not found"
-
-# Check bounce history
-python manage_bounces.py history test@invalid.com
-
-# View bounce statistics
-python manage_bounces.py stats
-```
-
-### Webhook Integration
-Configure your email service provider to send bounce notifications:
-
-**SendGrid**: `POST http://yourdomain.com/webhook/sendgrid/bounce`
-**Mailgun**: `POST http://yourdomain.com/webhook/mailgun/bounce`
-**Custom ESP**: `POST http://yourdomain.com/webhook/generic/bounce`
-
-### Management Dashboard
-Access the bounce management dashboard at http://localhost:3000 → "Bounce Manager" tab
-
-## 🎯 API Endpoints
+### Authentication
+- `POST /api/auth/signup` - User registration
+- `POST /api/auth/login` - User login
+- `GET /api/auth/me` - Get current user
+- `GET /api/auth/check-status` - Real-time status check
 
 ### Validation
-```bash
-# Single email validation
-POST /api/validate
-Body: { "email": "test@example.com" }
+- `POST /api/validate` - Single email validation (authenticated)
+- `POST /api/validate/local` - Anonymous validation (2 limit)
+- `POST /api/validate/batch/stream` - Batch validation with streaming
 
-# Advanced validation
-POST /api/validate/advanced
-Body: { "email": "test@example.com
+### Admin
+- `POST /admin/auth/login` - Admin login
+- `GET /admin/dashboard` - Dashboard statistics
+- `GET /admin/users` - User management
+- `POST /admin/users/{id}/suspend` - Suspend user
+- `POST /admin/users/{id}/unsuspend` - Unsuspend user
 
-1. **Input Handler** - File loading with comprehensive error handling
-2. **Validator Logic** - Pure functions with modular validation rules
-3. **Output Reporter** - Clean terminal output with summary statistics
+## 🎯 Key Features
 
-## Error Handling
+### Real-time Suspension System
+- **Instant Detection** - 2-second status checks
+- **Immediate Enforcement** - API calls blocked instantly
+- **Professional UI** - Modal-based suspension interface
+- **Activity Logging** - Complete audit trail
 
-The validator provides clear, actionable error messages:
+### Free Tier Management
+- **10 API Calls** - Per registered user
+- **2 Anonymous Validations** - For non-registered users
+- **Usage Tracking** - Real-time counters
+- **Upgrade Prompts** - Clear upgrade paths
 
-- Missing file
-- Permission denied
-- Invalid encoding
-- Empty file
-- Missing arguments
+### Professional UI
+- **Dark/Light Themes** - Glassmorphic design
+- **Real-time Updates** - Live data everywhere
+- **Mobile Responsive** - Works on all devices
+- **Professional Admin Panel** - Complete management interface
 
-## Limitations
+## 📈 Production Ready
 
-This is an **intermediate-level** validator that intentionally does not support:
+- ✅ **Security** - JWT authentication, rate limiting, input validation
+- ✅ **Scalability** - Efficient database queries, streaming APIs
+- ✅ **Monitoring** - Real-time statistics, activity logging
+- ✅ **User Experience** - Professional UI, instant feedback
+- ✅ **Admin Control** - Complete user management system
 
-- Unicode/international characters (ASCII-only)
-- Quoted strings in local part
-- IP addresses in domain part
-- Comments in email addresses
-- DNS/MX record validation
-- Deliverability checking
+## 🔒 Security
 
-These limitations are by design for simplicity, performance, and maintainability.
+- **JWT Tokens** - Secure authentication
+- **Real-time Monitoring** - Instant suspension detection
+- **Rate Limiting** - API abuse protection
+- **Input Validation** - SQL injection prevention
+- **Admin Authentication** - Separate admin security layer
 
-## Examples
+---
 
-### Valid Emails
-
-```
-user@example.com
-john.doe@company.co.uk
-alice_smith@test-domain.org
-bob+filter@mail.example.com
-admin@subdomain.example.com
-test123@numbers456.com
-a@bc.de
-```
-
-### Invalid Emails
-
-```
-user@example              # No TLD
-.user@example.com         # Leading dot
-user..name@example.com    # Consecutive dots
-user name@example.com     # Space in email
-user@-example.com         # Hyphen at start of label
-user@@example.com         # Multiple @ symbols
-```
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-
-- Code follows existing style and architecture
-- All test cases pass
-- New features include test cases
-- Documentation is updated
-
-## License
-
-MIT License - feel free to use in your projects!
-
-## Author
-
-Kismat Adhikari
-
-## Acknowledgments
-
-Built with clean code principles and production-ready practices.
+**Built with ❤️ for professional email validation**

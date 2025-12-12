@@ -232,30 +232,35 @@ function App() {
     }
   }, [user, historyMode]);
 
+  // Helper function for immediate suspension checking
+  const checkUserStatus = async () => {
+    if (!user || !authToken) return true; // Not logged in, no need to check
+    
+    try {
+      const response = await api.get('/api/auth/check-status');
+      return true; // User is still active
+    } catch (error) {
+      if (error.response?.status === 403 && error.response?.data?.suspended) {
+        // User has been suspended!
+        const suspensionData = error.response.data;
+        
+        // Show suspension notification
+        alert(`🚫 Account Suspended\n\nYour account has been suspended.\nReason: ${suspensionData.reason}\nDate: ${new Date(suspensionData.suspended_at).toLocaleString()}\n\nYou will be logged out automatically.`);
+        
+        // Force logout
+        handleLogout();
+        return false; // User is suspended
+      }
+      return true; // Other errors, assume user is still active
+    }
+  };
+
   // Real-time suspension monitoring
   useEffect(() => {
     if (!user || !authToken) return;
 
-    const checkUserStatus = async () => {
-      try {
-        const response = await api.get('/api/auth/check-status');
-        // User is still active, continue normally
-      } catch (error) {
-        if (error.response?.status === 403 && error.response?.data?.suspended) {
-          // User has been suspended!
-          const suspensionData = error.response.data;
-          
-          // Show suspension notification
-          alert(`🚫 Account Suspended\n\nYour account has been suspended.\nReason: ${suspensionData.reason}\nDate: ${new Date(suspensionData.suspended_at).toLocaleString()}\n\nYou will be logged out automatically.`);
-          
-          // Force logout
-          handleLogout();
-        }
-      }
-    };
-
-    // Check status every 30 seconds
-    const statusInterval = setInterval(checkUserStatus, 30000);
+    // Check status every 2 seconds for instant detection
+    const statusInterval = setInterval(checkUserStatus, 2000);
 
     // Cleanup interval on unmount
     return () => clearInterval(statusInterval);
@@ -431,6 +436,11 @@ function App() {
     if (!email.trim()) {
       setError('Please enter an email address');
       return;
+    }
+
+    // Immediate suspension check before any action
+    if (user && !(await checkUserStatus())) {
+      return; // User is suspended, checkUserStatus handles logout
     }
 
     // Check if authenticated user has reached their limit

@@ -19,6 +19,14 @@ const AdminDashboard = () => {
     status: '',
     page: 1
   });
+  
+  // Suspension modal state
+  const [suspensionModal, setSuspensionModal] = useState({
+    isOpen: false,
+    userId: null,
+    userName: '',
+    reason: ''
+  });
 
   useEffect(() => {
     // Check admin authentication
@@ -379,8 +387,12 @@ const AdminDashboard = () => {
                             <button 
                               className="admin-action-btn suspend"
                               onClick={() => {
-                                const reason = prompt('Suspension reason:');
-                                if (reason) suspendUser(user.id, reason);
+                                setSuspensionModal({
+                                  isOpen: true,
+                                  userId: user.id,
+                                  userName: `${user.first_name} ${user.last_name}`.trim() || user.email,
+                                  reason: ''
+                                });
                               }}
                             >
                               Suspend
@@ -429,6 +441,63 @@ const AdminDashboard = () => {
           </div>
         )}
       </main>
+
+      {/* Suspension Modal */}
+      {suspensionModal.isOpen && (
+        <div className="admin-modal-overlay">
+          <div className="admin-modal">
+            <div className="admin-modal-header">
+              <h3>Suspend User Account</h3>
+              <button 
+                className="admin-modal-close"
+                onClick={() => setSuspensionModal({...suspensionModal, isOpen: false})}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="admin-modal-body">
+              <p>You are about to suspend the account for:</p>
+              <p><strong>{suspensionModal.userName}</strong></p>
+              
+              <div className="admin-form-group">
+                <label htmlFor="suspensionReason">Suspension Reason *</label>
+                <textarea
+                  id="suspensionReason"
+                  value={suspensionModal.reason}
+                  onChange={(e) => setSuspensionModal({...suspensionModal, reason: e.target.value})}
+                  placeholder="Enter the reason for suspension (required)"
+                  rows="4"
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="admin-modal-footer">
+              <button 
+                className="admin-btn-secondary"
+                onClick={() => setSuspensionModal({...suspensionModal, isOpen: false})}
+              >
+                Cancel
+              </button>
+              <button 
+                className="admin-btn-danger"
+                onClick={() => {
+                  if (suspensionModal.reason.trim()) {
+                    suspendUser(suspensionModal.userId, suspensionModal.reason.trim());
+                    setSuspensionModal({isOpen: false, userId: null, userName: '', reason: ''});
+                  } else {
+                    alert('Please enter a suspension reason');
+                  }
+                }}
+                disabled={!suspensionModal.reason.trim()}
+              >
+                Suspend Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

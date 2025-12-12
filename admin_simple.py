@@ -39,6 +39,37 @@ class SimpleAdminSystem:
         self.secret_key = os.getenv('ADMIN_JWT_SECRET', 'your-super-secret-admin-key-change-this')
         self.token_expiry = timedelta(hours=8)  # 8 hour sessions
         self.storage = get_storage()
+        
+        # In-memory activity log (in production, this would be in database)
+        self.activity_log = []
+        
+        # Add initial system start activity
+        self.log_activity('system_start', 'system', None, 'System', 'Admin system started')
+    
+    def log_activity(self, action, resource_type, resource_id, admin_name, details):
+        """Log an admin activity"""
+        activity = {
+            'action': action,
+            'resource_type': resource_type,
+            'resource_id': resource_id,
+            'admin_name': admin_name,
+            'details': details,
+            'created_at': datetime.now().isoformat()
+        }
+        
+        # Add to beginning of list (newest first)
+        self.activity_log.insert(0, activity)
+        
+        # Keep only last 50 activities to prevent memory bloat
+        if len(self.activity_log) > 50:
+            self.activity_log = self.activity_log[:50]
+        
+        logger.info(f"📝 ACTIVITY LOGGED: {action} by {admin_name} - {details}")
+    
+    def get_recent_activity(self):
+        """Get recent admin activities"""
+        # Return last 10 activities
+        return self.activity_log[:10]
     
     def hash_password(self, password):
         """Hash password using bcrypt"""
@@ -92,6 +123,9 @@ class SimpleAdminSystem:
                 )
                 
                 logger.info(f"Admin login successful: {email}")
+                
+                # Log admin login activity
+                self.log_activity('admin_login', 'admin', admin_data['id'], 'Super Admin', f'Admin logged in from {ip_address or "unknown IP"}')
                 
                 return {
                     'token': token,
@@ -171,20 +205,7 @@ class SimpleAdminSystem:
                     'admin_actions_today': 0,  # Simplified
                     'active_admins': 1  # Simplified
                 },
-                'recent_activity': [
-                    {
-                        'action': 'admin_login',
-                        'resource_type': 'admin',
-                        'created_at': datetime.now().isoformat(),
-                        'admin_name': 'Super Admin'
-                    },
-                    {
-                        'action': 'system_start',
-                        'resource_type': 'system',
-                        'created_at': datetime.now().isoformat(),
-                        'admin_name': 'System'
-                    }
-                ],
+                'recent_activity': self.get_recent_activity(),
                 'user_growth': [],  # Simplified
                 'validation_trends': []  # Simplified
             }
@@ -245,14 +266,36 @@ class SimpleAdminSystem:
     def suspend_user(self, user_id, reason, admin_id):
         """Suspend a user - now with real database updates"""
         try:
+            # Get user info for activity log
+            user_result = self.storage.client.table('users').select('email, first_name, last_name').eq('id', user_id).execute()
+            if user_result.data:
+                user_data = user_result.data[0]
+                user_email = user_data.get('email', 'Unknown')
+                user_full_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip()
+                if not user_full_name:
+                    user_full_name = user_email  # Fallback to email if no name
+            else:
+                user_email = 'Unknown'
+                user_full_name = 'Unknown User'
+            
             result = self.storage.client.table('users').update({
                 'is_suspended': True,
                 'suspended_at': datetime.now().isoformat(),
-                'suspended_by': admin_id,
+                'suspended_by': None,  # Use None to avoid UUID constraint issues
                 'suspension_reason': reason
             }).eq('id', user_id).execute()
             
+            # Log activity for Recent Activity feed - show user's name, not admin's name
+            self.log_activity(
+                'user_suspended', 
+                'user', 
+                user_id, 
+                user_full_name,  # Show the user's name who was suspended
+                f"Account suspended by admin - Reason: {reason}"
+            )
+            
             logger.info(f"✅ User {user_id} SUSPENDED by admin {admin_id}: {reason}")
+            logger.info(f"   Database update result: {result.data}")
             return True
             
         except Exception as e:
@@ -264,6 +307,18 @@ class SimpleAdminSystem:
     def unsuspend_user(self, user_id, admin_id):
         """Unsuspend a user - now with real database updates"""
         try:
+            # Get user info for activity log
+            user_result = self.storage.client.table('users').select('email, first_name, last_name').eq('id', user_id).execute()
+            if user_result.data:
+                user_data = user_result.data[0]
+                user_email = user_data.get('email', 'Unknown')
+                user_full_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip()
+                if not user_full_name:
+                    user_full_name = user_email  # Fallback to email if no name
+            else:
+                user_email = 'Unknown'
+                user_full_name = 'Unknown User'
+            
             result = self.storage.client.table('users').update({
                 'is_suspended': False,
                 'suspended_at': None,
@@ -271,7 +326,17 @@ class SimpleAdminSystem:
                 'suspension_reason': None
             }).eq('id', user_id).execute()
             
+            # Log activity for Recent Activity feed - show user's name, not admin's name
+            self.log_activity(
+                'user_unsuspended', 
+                'user', 
+                user_id, 
+                user_full_name,  # Show the user's name who was unsuspended
+                f"Account restored by admin"
+            )
+            
             logger.info(f"✅ User {user_id} UNSUSPENDED by admin {admin_id}")
+            logger.info(f"   Database update result: {result.data}")
             return True
             
         except Exception as e:

@@ -844,6 +844,17 @@ def validate_email():
                     'error': 'User not found',
                     'message': 'User account no longer exists'
                 }), 404
+            
+            # Check if user is suspended (IMMEDIATE CHECK)
+            if authenticated_user.get('is_suspended', False):
+                suspension_reason = authenticated_user.get('suspension_reason', 'No reason provided')
+                return jsonify({
+                    'error': 'Account suspended',
+                    'message': f'Your account has been suspended. Reason: {suspension_reason}',
+                    'suspension_reason': suspension_reason,
+                    'suspended_at': authenticated_user.get('suspended_at'),
+                    'suspended': True
+                }), 403
                 
             # Check API limits
             if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
@@ -1524,6 +1535,17 @@ def validate_batch_stream():
                 authenticated_user = storage.get_user_by_id(user_id)
                 if authenticated_user:
                     logger.info(f"Authenticated batch validation for user {user_id} ({authenticated_user['email']})")
+                    
+                    # Check if user is suspended (IMMEDIATE CHECK)
+                    if authenticated_user.get('is_suspended', False):
+                        suspension_reason = authenticated_user.get('suspension_reason', 'No reason provided')
+                        return jsonify({
+                            'error': 'Account suspended',
+                            'message': f'Your account has been suspended. Reason: {suspension_reason}',
+                            'suspension_reason': suspension_reason,
+                            'suspended_at': authenticated_user.get('suspended_at'),
+                            'suspended': True
+                        }), 403
         except Exception as e:
             # Not authenticated, continue as anonymous
             logger.debug(f"No authentication or invalid token for batch: {str(e)}")
