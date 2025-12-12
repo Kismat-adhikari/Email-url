@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiUser, FiMail, FiCalendar, FiKey, FiSave, FiEdit3, FiActivity, FiAward, FiArrowLeft, FiLogOut, FiMoon, FiSun } from 'react-icons/fi';
+import { FiUser, FiMail, FiCalendar, FiKey, FiSave, FiEdit3, FiActivity, FiAward, FiArrowLeft, FiLogOut, FiMoon, FiSun, FiZap } from 'react-icons/fi';
 import './Profile.css';
 
 const Profile = () => {
@@ -199,10 +199,17 @@ const Profile = () => {
             </button>
 
             {/* API Usage Counter */}
-            <div className="api-usage-counter">
+            <div className={`api-usage-counter ${user.apiCallsCount >= user.apiCallsLimit ? 'limit-reached' : user.apiCallsCount >= user.apiCallsLimit * 0.8 ? 'limit-warning' : ''}`}>
               <FiActivity className="usage-icon" />
               <span className="usage-text">{user.apiCallsCount || 0}/{user.apiCallsLimit}</span>
-              <span className="usage-label">API Calls</span>
+              <span className="usage-label">
+                {user.subscriptionTier === 'free' ? 'Free' : 'API Calls'}
+              </span>
+              {user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit && (
+                <div className="upgrade-hint">
+                  <FiZap style={{marginRight: '4px'}} /> Upgrade for unlimited!
+                </div>
+              )}
             </div>
 
             {/* Navigation Buttons */}
