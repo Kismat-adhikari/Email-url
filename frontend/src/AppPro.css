@@ -3193,3 +3193,92 @@ body.dark-mode *:focus-visible {
   align-items: center;
   margin-top: 4px;
 }
+/* Admin Access Banner */
+.admin-access-banner {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  border: 2px solid #fca5a5;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 8px 25px rgba(220, 38, 38, 0.3);
+}
+
+.admin-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.admin-banner-icon {
+  font-size: 2rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 12px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-banner-text {
+  flex: 1;
+  color: white;
+}
+
+.admin-banner-text h3 {
+  margin: 0 0 8px 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.admin-banner-text p {
+  margin: 0 0 12px 0;
+  opacity: 0.9;
+}
+
+.admin-banner-text .feature-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.admin-banner-text .feature-list span {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+/* Admin Unlimited Indicators */
+.admin-unlimited-indicator {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  margin-top: 12px;
+  border: 2px solid #fca5a5;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+}
+
+.admin-batch-info {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin-top: 8px;
+  border: 1px solid #fca5a5;
+}
+
+/* Admin badge for tabs */
+.admin-badge {
+  background: rgba(220, 38, 38, 0.9);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: 6px;
+}

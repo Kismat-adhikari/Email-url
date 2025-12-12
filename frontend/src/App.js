@@ -1086,9 +1086,9 @@ function App() {
               Single Email
             </button>
             <button
-              className={`pro-tab ${batchMode ? 'active' : ''} ${user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
+              className={`pro-tab ${batchMode ? 'active' : ''} ${!adminMode && user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
               onClick={() => {
-                if (user && user.subscriptionTier === 'free') {
+                if (!adminMode && user && user.subscriptionTier === 'free') {
                   setError('Batch validation is only available for Pro plans. Upgrade to validate multiple emails at once!');
                   return;
                 }
@@ -1099,23 +1099,26 @@ function App() {
                 setBatchResults(null);
                 setError(null);
               }}
-              disabled={user && user.subscriptionTier === 'free'}
-              title={user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for batch validation' : 'Validate multiple emails at once'}
+              disabled={!adminMode && user && user.subscriptionTier === 'free'}
+              title={!adminMode && user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for batch validation' : 'Validate multiple emails at once'}
             >
               <div className="pro-tab-content">
                 <span className="pro-tab-icon"><FiList /></span>
                 <span className="pro-tab-text">
                   Batch Validation
-                  {user && user.subscriptionTier === 'free' && (
+                  {!adminMode && user && user.subscriptionTier === 'free' && (
                     <span className="pro-badge">PRO</span>
+                  )}
+                  {adminMode && (
+                    <span className="admin-badge">ADMIN</span>
                   )}
                 </span>
               </div>
             </button>
             <button
-              className={`pro-tab ${emailMode ? 'active' : ''} ${user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
+              className={`pro-tab ${emailMode ? 'active' : ''} ${!adminMode && user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
               onClick={() => {
-                if (user && user.subscriptionTier === 'free') {
+                if (!adminMode && user && user.subscriptionTier === 'free') {
                   setError('Email sending is only available for Pro plans. Upgrade to send emails to validated addresses!');
                   return;
                 }
@@ -1126,15 +1129,18 @@ function App() {
                 setBatchResults(null);
                 setError(null);
               }}
-              disabled={user && user.subscriptionTier === 'free'}
-              title={user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for email sending' : 'Send emails to validated addresses'}
+              disabled={!adminMode && user && user.subscriptionTier === 'free'}
+              title={!adminMode && user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for email sending' : 'Send emails to validated addresses'}
             >
               <div className="pro-tab-content">
                 <span className="pro-tab-icon"><FiSend /></span>
                 <span className="pro-tab-text">
                   Send Emails
-                  {user && user.subscriptionTier === 'free' && (
+                  {!adminMode && user && user.subscriptionTier === 'free' && (
                     <span className="pro-badge">PRO</span>
+                  )}
+                  {adminMode && (
+                    <span className="admin-badge">ADMIN</span>
                   )}
                 </span>
               </div>
@@ -1340,8 +1346,8 @@ function App() {
           <>
             {/* Single Email Input */}
             <div className="pro-input-section">
-              {/* Free Tier Limit Warning */}
-              {user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit && (
+              {/* Free Tier Limit Warning (hidden for admin) */}
+              {!adminMode && user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit && (
                 <div className="limit-reached-banner">
                   <div className="limit-banner-content">
                     <div className="limit-banner-icon">🚫</div>
@@ -1356,8 +1362,8 @@ function App() {
                 </div>
               )}
               
-              {/* Approaching Limit Warning */}
-              {user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit * 0.8 && user.apiCallsCount < user.apiCallsLimit && (
+              {/* Approaching Limit Warning (hidden for admin) */}
+              {!adminMode && user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit * 0.8 && user.apiCallsCount < user.apiCallsLimit && (
                 <div className="limit-warning-banner">
                   <div className="limit-banner-content">
                     <div className="limit-banner-icon">⚠️</div>
@@ -1375,19 +1381,19 @@ function App() {
               <div className="pro-input-wrapper">
                 <input
                   type="email"
-                  className={`pro-email-input ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
-                  placeholder={user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue validating...' : 'Enter email address to validate...'}
+                  className={`pro-email-input ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                  placeholder={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue validating...' : adminMode ? 'Admin: Unlimited validation access...' : 'Enter email address to validate...'}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  disabled={loading || (user && user.apiCallsCount >= user.apiCallsLimit)}
+                  disabled={loading || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
                 />
                 <button
-                  className={`pro-validate-btn ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                  className={`pro-validate-btn ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
                   onClick={validateEmail}
-                  disabled={loading || !email.trim() || (user && user.apiCallsCount >= user.apiCallsLimit)}
+                  disabled={loading || !email.trim() || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
                 >
-                  {user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached' : loading ? 'Validating...' : 'Validate Email'}
+                  {!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached' : loading ? 'Validating...' : adminMode ? 'Validate Email (Admin)' : 'Validate Email'}
                 </button>
               </div>
             </div>
@@ -1402,8 +1408,8 @@ function App() {
           </>
         ) : (
           <div className="batch-section">
-            {/* Free Tier Batch Restriction */}
-            {user && user.subscriptionTier === 'free' && (
+            {/* Free Tier Batch Restriction (hidden for admin) */}
+            {!adminMode && user && user.subscriptionTier === 'free' && (
               <div className="feature-restriction-banner">
                 <div className="restriction-banner-content">
                   <div className="restriction-banner-icon"><FiZap /></div>
@@ -1424,20 +1430,39 @@ function App() {
               </div>
             )}
 
+            {/* Admin Access Banner */}
+            {adminMode && (
+              <div className="admin-access-banner">
+                <div className="admin-banner-content">
+                  <div className="admin-banner-icon"><FiShield /></div>
+                  <div className="admin-banner-text">
+                    <h3>Admin Access - All Features Unlocked</h3>
+                    <p>You have unlimited access to all premium features including batch validation, file uploads, and advanced analytics!</p>
+                    <div className="feature-list">
+                      <span>🛡️ Unlimited batch processing</span>
+                      <span>🛡️ All file formats supported</span>
+                      <span>🛡️ Advanced analytics & exports</span>
+                      <span>🛡️ No API limits or restrictions</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="upload-mode-selector">
               <button
-                className={`upload-mode-btn ${uploadMode === 'text' ? 'active' : ''} ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                className={`upload-mode-btn ${uploadMode === 'text' ? 'active' : ''} ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
                 onClick={() => setUploadMode('text')}
-                disabled={user && user.apiCallsCount >= user.apiCallsLimit}
+                disabled={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit}
               >
-                ✏️ Type Emails
+                ✏️ Type Emails {adminMode && '(Admin)'}
               </button>
               <button
-                className={`upload-mode-btn ${uploadMode === 'file' ? 'active' : ''} ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                className={`upload-mode-btn ${uploadMode === 'file' ? 'active' : ''} ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
                 onClick={() => setUploadMode('file')}
-                disabled={user && user.apiCallsCount >= user.apiCallsLimit}
+                disabled={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit}
               >
-                📁 Upload File
+                📁 Upload File {adminMode && '(Admin)'}
               </button>
             </div>
 
@@ -1470,8 +1495,8 @@ function App() {
                       )}
                     </div>
                     
-                    {/* API limit warning for authenticated users */}
-                    {user && user.subscriptionTier === 'free' && (
+                    {/* API limit warning for authenticated users (hidden for admin) */}
+                    {!adminMode && user && user.subscriptionTier === 'free' && (
                       <div className={`api-limit-check ${
                         finalCount > (user.apiCallsLimit - user.apiCallsCount) ? 'exceeds-limit' : 
                         finalCount > (user.apiCallsLimit - user.apiCallsCount) * 0.5 ? 'approaching-limit' : 'within-limit'
@@ -1494,6 +1519,13 @@ function App() {
                         )}
                       </div>
                     )}
+                    
+                    {/* Admin unlimited access indicator */}
+                    {adminMode && batchEmails && (
+                      <div className="admin-unlimited-indicator">
+                        🛡️ Admin Mode: Unlimited batch validation ({parseEmails(batchEmails).length} emails ready)
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1503,18 +1535,23 @@ function App() {
               <>
                 <div className="format-info">
                   💡 Paste emails in any format: one per line, comma-separated, or copy from Excel/Sheets
-                  {user && user.subscriptionTier === 'free' && (
+                  {!adminMode && user && user.subscriptionTier === 'free' && (
                     <div className="batch-limit-info">
                       ⚠️ Free tier: {user.apiCallsLimit - user.apiCallsCount} validations remaining
                     </div>
                   )}
+                  {adminMode && (
+                    <div className="admin-batch-info">
+                      🛡️ Admin Mode: Unlimited batch validation access
+                    </div>
+                  )}
                 </div>
                 <textarea
-                  className={`batch-input ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
-                  placeholder={user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue batch validation...' : 'Enter email addresses (one per line, comma-separated, or any format)...'}
+                  className={`batch-input ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                  placeholder={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue batch validation...' : adminMode ? 'Admin: Enter unlimited emails for batch validation...' : 'Enter email addresses (one per line, comma-separated, or any format)...'}
                   value={batchEmails}
                   onChange={(e) => setBatchEmails(e.target.value)}
-                  disabled={loading || (user && user.apiCallsCount >= user.apiCallsLimit)}
+                  disabled={loading || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
                   rows={10}
                 />
               </>
@@ -1564,11 +1601,11 @@ function App() {
             )}
 
             <button
-              className={`validate-btn ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+              className={`validate-btn ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
               onClick={validateBatch}
-              disabled={loading || (!batchEmails.trim()) || (user && user.apiCallsCount >= user.apiCallsLimit)}
+              disabled={loading || (!batchEmails.trim()) || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
             >
-              {user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached - Upgrade Required' : loading ? 'Validating...' : 'Validate Batch'}
+              {!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached - Upgrade Required' : loading ? 'Validating...' : adminMode ? 'Validate Batch (Admin - Unlimited)' : 'Validate Batch'}
             </button>
           </div>
         )}
