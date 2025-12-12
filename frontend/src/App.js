@@ -9,7 +9,7 @@ import {
   FiTrash2, FiDownload, FiCopy, FiCheckCircle, FiXCircle,
   FiZap, FiCpu, FiInbox, FiList, FiClock, FiAlertTriangle,
   FiAlertCircle, FiFileText, FiSend,
-  FiShield, FiTrendingUp, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
+  FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
 } from 'react-icons/fi';
 import EmailComposer from './EmailComposer';
 
@@ -87,17 +87,7 @@ function getLocalStorageHistory() {
   }
 }
 
-function deleteLocalStorageRecord(recordId) {
-  try {
-    const history = getLocalStorageHistory();
-    const filtered = history.filter(record => record.id !== recordId);
-    localStorage.setItem('validation_history', JSON.stringify(filtered));
-    return true;
-  } catch (error) {
-    console.error('Failed to delete from localStorage:', error);
-    return false;
-  }
-}
+// deleteLocalStorageRecord function removed - no longer needed since we only remove from display
 
 function clearLocalStorageHistory() {
   try {
@@ -202,6 +192,31 @@ function App() {
     }
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
   }, [darkMode]);
+
+  // Refresh user data on app load if user is logged in
+  useEffect(() => {
+    const refreshUserData = async () => {
+      if (authToken && user) {
+        try {
+          const response = await api.get('/api/auth/me');
+          if (response.status === 200) {
+            const updatedUser = response.data.user;
+            setUser(updatedUser);
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            console.log('🔄 User data refreshed from server');
+          }
+        } catch (error) {
+          console.error('Failed to refresh user data:', error);
+          // If token is invalid, logout
+          if (error.response?.status === 401) {
+            handleLogout();
+          }
+        }
+      }
+    };
+
+    refreshUserData();
+  }, []); // Run once on app load
 
   useEffect(() => {
     // Clean up signup success URL parameter (no alert needed)
@@ -389,6 +404,12 @@ function App() {
       return;
     }
 
+    // Check if authenticated user has reached their limit
+    if (user && user.apiCallsCount >= user.apiCallsLimit) {
+      setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -403,6 +424,17 @@ function App() {
       });
       
       setResult(response.data);
+      
+      // Update user API usage if authenticated
+      if (user && response.data.api_usage) {
+        const updatedUser = {
+          ...user,
+          apiCallsCount: response.data.api_usage.calls_used
+        };
+        setUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        console.log(`🔄 API usage updated: ${response.data.api_usage.calls_used}/${response.data.api_usage.calls_limit}`);
+      }
       
       // Save to localStorage for anonymous users
       if (!user && response.data) {
@@ -419,6 +451,17 @@ function App() {
         || err.message 
         || 'Validation failed. Make sure the backend is running on port 5000.';
       setError(errorMsg);
+      
+      // Handle API limit exceeded error specifically
+      if (err.response?.status === 429) {
+        // Update user state to reflect limit reached
+        if (user && err.response?.data?.current_usage) {
+          setUser(prev => ({
+            ...prev,
+            apiCallsCount: err.response.data.current_usage
+          }));
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -520,6 +563,21 @@ function App() {
     if (emails.length === 0) {
       setError('Please enter at least one email address or upload a file');
       return;
+    }
+
+    // Check if authenticated user has reached their limit
+    if (user && user.apiCallsCount >= user.apiCallsLimit) {
+      setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
+      return;
+    }
+
+    // Check if batch would exceed user's remaining limit
+    if (user) {
+      const remainingCalls = user.apiCallsLimit - user.apiCallsCount;
+      if (emails.length > remainingCalls) {
+        setError(`This batch contains ${emails.length} emails, but you only have ${remainingCalls} API calls remaining. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please reduce the batch size or contact support.'}`);
+        return;
+      }
     }
 
     // Detect duplicates for display
@@ -712,23 +770,27 @@ function App() {
   };
 
   const deleteHistoryItem = async (id) => {
-    if (!window.confirm('Delete this record?')) return;
+    // Custom confirmation dialog
+    const confirmed = window.confirm(
+      'Remove this record from view?\n\n' +
+      'Note: This will only hide the record from this page. ' +
+      'Your API usage count will not change.'
+    );
+    
+    if (!confirmed) return;
     
     try {
-      if (user) {
-        // Authenticated user - delete from database
-        await api.delete(`/api/history/${id}`);
-        await loadHistory();
-      } else {
-        // Anonymous user - delete from localStorage
-        if (deleteLocalStorageRecord(id)) {
-          await loadHistory();
-        } else {
-          alert('Failed to delete record');
-        }
-      }
+      // Only remove from the current display, not from actual data
+      const updatedHistory = history.filter(item => item.id !== id);
+      const updatedFilteredHistory = filteredHistory.filter(item => item.id !== id);
+      
+      setHistory(updatedHistory);
+      setFilteredHistory(updatedFilteredHistory);
+      
+      // Show success message
+      console.log('✅ Record removed from view (API usage unchanged)');
     } catch (err) {
-      alert('Failed to delete record');
+      alert('Failed to remove record from view');
     }
   };
 
@@ -869,12 +931,28 @@ function App() {
 
             {/* API Usage Counter */}
             {user ? (
-              <div className="api-usage-counter">
+              <div className={`api-usage-counter ${user.apiCallsCount >= user.apiCallsLimit ? 'limit-reached' : user.apiCallsCount >= user.apiCallsLimit * 0.8 ? 'limit-warning' : ''}`}>
                 <FiActivity className="usage-icon" />
                 <span className="usage-text">{user.apiCallsCount || 0}/{user.apiCallsLimit}</span>
-                <span className="usage-label">API Calls</span>
+                <span className="usage-label">
+                  {user.subscriptionTier === 'free' ? 'Free' : 'API Calls'}
+                </span>
+                {user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit && (
+                  <div className="upgrade-hint">
+                    <FiZap style={{marginRight: '4px'}} /> Upgrade for unlimited!
+                  </div>
+                )}
               </div>
-            ) : null}
+            ) : (
+              <div className="anonymous-usage-counter" title="Sign up to save your validation history and get API access">
+                <FiActivity className="usage-icon" />
+                <span className="usage-text">Free Mode</span>
+                <span className="usage-label">Unlimited</span>
+                <div className="signup-hint">
+                  <span>💾 Sign up!</span>
+                </div>
+              </div>
+            )}
 
             {/* Authentication Buttons */}
             {user ? (
@@ -930,8 +1008,12 @@ function App() {
               Single Email
             </button>
             <button
-              className={`pro-tab ${batchMode ? 'active' : ''}`}
+              className={`pro-tab ${batchMode ? 'active' : ''} ${user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
               onClick={() => {
+                if (user && user.subscriptionTier === 'free') {
+                  setError('Batch validation is only available for Pro plans. Upgrade to validate multiple emails at once!');
+                  return;
+                }
                 setBatchMode(true);
                 setHistoryMode(false);
                 setEmailMode(false);
@@ -939,13 +1021,26 @@ function App() {
                 setBatchResults(null);
                 setError(null);
               }}
+              disabled={user && user.subscriptionTier === 'free'}
+              title={user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for batch validation' : 'Validate multiple emails at once'}
             >
-              <span className="pro-tab-icon"><FiList /></span>
-              Batch Validation
+              <div className="pro-tab-content">
+                <span className="pro-tab-icon"><FiList /></span>
+                <span className="pro-tab-text">
+                  Batch Validation
+                  {user && user.subscriptionTier === 'free' && (
+                    <span className="pro-badge">PRO</span>
+                  )}
+                </span>
+              </div>
             </button>
             <button
-              className={`pro-tab ${emailMode ? 'active' : ''}`}
+              className={`pro-tab ${emailMode ? 'active' : ''} ${user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
               onClick={() => {
+                if (user && user.subscriptionTier === 'free') {
+                  setError('Email sending is only available for Pro plans. Upgrade to send emails to validated addresses!');
+                  return;
+                }
                 setEmailMode(true);
                 setBatchMode(false);
                 setHistoryMode(false);
@@ -953,9 +1048,18 @@ function App() {
                 setBatchResults(null);
                 setError(null);
               }}
+              disabled={user && user.subscriptionTier === 'free'}
+              title={user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for email sending' : 'Send emails to validated addresses'}
             >
-              <span className="pro-tab-icon"><FiSend /></span>
-              Send Emails
+              <div className="pro-tab-content">
+                <span className="pro-tab-icon"><FiSend /></span>
+                <span className="pro-tab-text">
+                  Send Emails
+                  {user && user.subscriptionTier === 'free' && (
+                    <span className="pro-badge">PRO</span>
+                  )}
+                </span>
+              </div>
             </button>
             <button
               className={`pro-tab ${historyMode ? 'active' : ''}`}
@@ -979,10 +1083,11 @@ function App() {
           <div className="pro-content">
             {/* Mode Selector - Only show when NOT in history mode */}
             {!historyMode && (
-              <div className="pro-mode-selector">
+              <div className={`pro-mode-selector ${loading ? 'disabled' : ''}`}>
                 <div 
-                  className={`pro-mode-option ${mode === 'basic' ? 'active' : ''}`}
+                  className={`pro-mode-option ${mode === 'basic' ? 'active' : ''} ${loading ? 'disabled' : ''}`}
                   onClick={() => {
+                    if (loading) return; // Prevent mode switching during validation
                     setMode('basic');
                     setResult(null);
                     setError(null);
@@ -993,7 +1098,9 @@ function App() {
                     className="pro-mode-radio"
                     value="basic"
                     checked={mode === 'basic'}
+                    disabled={loading}
                     onChange={(e) => {
+                      if (loading) return; // Prevent mode switching during validation
                       setMode(e.target.value);
                       setResult(null);
                       setError(null);
@@ -1005,8 +1112,9 @@ function App() {
                   </div>
                 </div>
                 <div 
-                  className={`pro-mode-option ${mode === 'advanced' ? 'active' : ''}`}
+                  className={`pro-mode-option ${mode === 'advanced' ? 'active' : ''} ${loading ? 'disabled' : ''}`}
                   onClick={() => {
+                    if (loading) return; // Prevent mode switching during validation
                     setMode('advanced');
                     setResult(null);
                     setError(null);
@@ -1017,7 +1125,9 @@ function App() {
                     className="pro-mode-radio"
                     value="advanced"
                     checked={mode === 'advanced'}
+                    disabled={loading}
                     onChange={(e) => {
+                      if (loading) return; // Prevent mode switching during validation
                       setMode(e.target.value);
                       setResult(null);
                       setError(null);
@@ -1144,22 +1254,54 @@ function App() {
           <>
             {/* Single Email Input */}
             <div className="pro-input-section">
+              {/* Free Tier Limit Warning */}
+              {user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit && (
+                <div className="limit-reached-banner">
+                  <div className="limit-banner-content">
+                    <div className="limit-banner-icon">🚫</div>
+                    <div className="limit-banner-text">
+                      <h3>Free Tier Limit Reached</h3>
+                      <p>You've used all {user.apiCallsLimit} free validations. Upgrade to continue validating emails!</p>
+                    </div>
+                    <button className="upgrade-btn" onClick={() => navigate('/profile')}>
+                      <FiZap style={{marginRight: '6px'}} /> Upgrade Now
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Approaching Limit Warning */}
+              {user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit * 0.8 && user.apiCallsCount < user.apiCallsLimit && (
+                <div className="limit-warning-banner">
+                  <div className="limit-banner-content">
+                    <div className="limit-banner-icon">⚠️</div>
+                    <div className="limit-banner-text">
+                      <h3>Approaching Limit</h3>
+                      <p>You have {user.apiCallsLimit - user.apiCallsCount} validations remaining out of {user.apiCallsLimit}.</p>
+                    </div>
+                    <button className="upgrade-btn-small" onClick={() => navigate('/profile')}>
+                      Upgrade
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="pro-input-wrapper">
                 <input
                   type="email"
-                  className="pro-email-input"
-                  placeholder="Enter email address to validate..."
+                  className={`pro-email-input ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                  placeholder={user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue validating...' : 'Enter email address to validate...'}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  disabled={loading}
+                  disabled={loading || (user && user.apiCallsCount >= user.apiCallsLimit)}
                 />
                 <button
-                  className="pro-validate-btn"
+                  className={`pro-validate-btn ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
                   onClick={validateEmail}
-                  disabled={loading || !email.trim()}
+                  disabled={loading || !email.trim() || (user && user.apiCallsCount >= user.apiCallsLimit)}
                 >
-                  {loading ? 'Validating...' : 'Validate Email'}
+                  {user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached' : loading ? 'Validating...' : 'Validate Email'}
                 </button>
               </div>
             </div>
@@ -1174,16 +1316,40 @@ function App() {
           </>
         ) : (
           <div className="batch-section">
+            {/* Free Tier Batch Restriction */}
+            {user && user.subscriptionTier === 'free' && (
+              <div className="feature-restriction-banner">
+                <div className="restriction-banner-content">
+                  <div className="restriction-banner-icon"><FiZap /></div>
+                  <div className="restriction-banner-text">
+                    <h3>Batch Validation - Pro Feature</h3>
+                    <p>Batch validation is available for Pro users only. Upgrade to validate multiple emails at once, upload files, and access advanced batch analytics!</p>
+                    <div className="feature-list">
+                      <span>✅ Unlimited batch processing</span>
+                      <span>✅ File upload support (CSV, Excel, PDF)</span>
+                      <span>✅ Domain statistics & analytics</span>
+                      <span>✅ Export results (CSV, JSON)</span>
+                    </div>
+                  </div>
+                  <button className="upgrade-btn-large" onClick={() => navigate('/profile')}>
+                    <FiZap style={{marginRight: '8px'}} /> Upgrade to Pro
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="upload-mode-selector">
               <button
-                className={`upload-mode-btn ${uploadMode === 'text' ? 'active' : ''}`}
+                className={`upload-mode-btn ${uploadMode === 'text' ? 'active' : ''} ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
                 onClick={() => setUploadMode('text')}
+                disabled={user && user.apiCallsCount >= user.apiCallsLimit}
               >
                 ✏️ Type Emails
               </button>
               <button
-                className={`upload-mode-btn ${uploadMode === 'file' ? 'active' : ''}`}
+                className={`upload-mode-btn ${uploadMode === 'file' ? 'active' : ''} ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
                 onClick={() => setUploadMode('file')}
+                disabled={user && user.apiCallsCount >= user.apiCallsLimit}
               >
                 📁 Upload File
               </button>
@@ -1201,15 +1367,49 @@ function App() {
               {batchEmails && (() => {
                 const emails = parseEmails(batchEmails);
                 const dupInfo = detectDuplicates(emails);
-                if (dupInfo.duplicates > 0) {
-                  return (
-                    <div className="duplicate-warning">
-                      ⚠️ Found {dupInfo.duplicates} duplicate{dupInfo.duplicates > 1 ? 's' : ''} out of {dupInfo.total} emails
-                      {removeDuplicates && ` (will be removed automatically)`}
+                const finalCount = removeDuplicates ? dupInfo.unique : dupInfo.total;
+                
+                return (
+                  <div className="batch-analysis">
+                    {/* Email count and duplicate info */}
+                    <div className="email-count-info">
+                      📧 {finalCount} email{finalCount !== 1 ? 's' : ''} ready for validation
+                      {dupInfo.duplicates > 0 && (
+                        <span className="duplicate-note">
+                          {removeDuplicates 
+                            ? ` (${dupInfo.duplicates} duplicate${dupInfo.duplicates > 1 ? 's' : ''} will be removed)`
+                            : ` (${dupInfo.duplicates} duplicate${dupInfo.duplicates > 1 ? 's' : ''} detected)`
+                          }
+                        </span>
+                      )}
                     </div>
-                  );
-                }
-                return null;
+                    
+                    {/* API limit warning for authenticated users */}
+                    {user && user.subscriptionTier === 'free' && (
+                      <div className={`api-limit-check ${
+                        finalCount > (user.apiCallsLimit - user.apiCallsCount) ? 'exceeds-limit' : 
+                        finalCount > (user.apiCallsLimit - user.apiCallsCount) * 0.5 ? 'approaching-limit' : 'within-limit'
+                      }`}>
+                        {finalCount > (user.apiCallsLimit - user.apiCallsCount) ? (
+                          <>
+                            ❌ Batch size ({finalCount}) exceeds your remaining limit ({user.apiCallsLimit - user.apiCallsCount})
+                            <div className="limit-suggestion">
+                              Reduce batch size or <strong>upgrade to unlimited</strong>
+                            </div>
+                          </>
+                        ) : finalCount > (user.apiCallsLimit - user.apiCallsCount) * 0.5 ? (
+                          <>
+                            ⚠️ This will use {finalCount} of your {user.apiCallsLimit - user.apiCallsCount} remaining validations
+                          </>
+                        ) : (
+                          <>
+                            ✅ Within your limit ({user.apiCallsLimit - user.apiCallsCount} remaining)
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
               })()}
             </div>
 
@@ -1217,13 +1417,18 @@ function App() {
               <>
                 <div className="format-info">
                   💡 Paste emails in any format: one per line, comma-separated, or copy from Excel/Sheets
+                  {user && user.subscriptionTier === 'free' && (
+                    <div className="batch-limit-info">
+                      ⚠️ Free tier: {user.apiCallsLimit - user.apiCallsCount} validations remaining
+                    </div>
+                  )}
                 </div>
                 <textarea
-                  className="batch-input"
-                  placeholder="Enter email addresses (one per line, comma-separated, or any format)..."
+                  className={`batch-input ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                  placeholder={user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue batch validation...' : 'Enter email addresses (one per line, comma-separated, or any format)...'}
                   value={batchEmails}
                   onChange={(e) => setBatchEmails(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || (user && user.apiCallsCount >= user.apiCallsLimit)}
                   rows={10}
                 />
               </>
@@ -1273,11 +1478,11 @@ function App() {
             )}
 
             <button
-              className="validate-btn"
+              className={`validate-btn ${user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
               onClick={validateBatch}
-              disabled={loading || (!batchEmails.trim())}
+              disabled={loading || (!batchEmails.trim()) || (user && user.apiCallsCount >= user.apiCallsLimit)}
             >
-              {loading ? 'Validating...' : 'Validate Batch'}
+              {user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached - Upgrade Required' : loading ? 'Validating...' : 'Validate Batch'}
             </button>
           </div>
         )}
@@ -1305,14 +1510,35 @@ function App() {
 
         {/* Error Display */}
         {error && (
-          <div className="pro-error-box">
-            <strong><FiAlertTriangle style={{display: 'inline', marginRight: '8px'}} /> Error:</strong> {error}
+          <div className={`pro-error-box ${error.includes('Pro plans') || error.includes('Email sending') ? 'upgrade-error' : ''}`}>
+            <strong><FiAlertTriangle style={{display: 'inline', marginRight: '8px'}} /> {error.includes('Pro plans') || error.includes('Email sending') ? 'Upgrade Required:' : 'Error:'}</strong> {error}
+            {(error.includes('Pro plans') || error.includes('Email sending')) && (
+              <button className="error-upgrade-btn" onClick={() => navigate('/profile')}>
+                Upgrade Now
+              </button>
+            )}
           </div>
         )}
 
         {/* Single Email Result */}
         {result && !batchMode && (
           <div className={`pro-result-card ${result.valid ? 'valid' : 'invalid'}`}>
+            {/* Anonymous User Signup Encouragement */}
+            {!user && (
+              <div className="anonymous-signup-banner">
+                <div className="signup-banner-content">
+                  <div className="signup-banner-icon">💾</div>
+                  <div className="signup-banner-text">
+                    <h3>Save Your Validation History</h3>
+                    <p>Sign up for free to save your results, access advanced features, and get API access!</p>
+                  </div>
+                  <button className="signup-banner-btn" onClick={() => navigate('/signup')}>
+                    Sign Up Free
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Result Header */}
             <div className={`pro-result-header ${result.valid ? 'valid' : 'invalid'}`}>
               <div className="pro-result-title-row">
