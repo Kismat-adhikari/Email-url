@@ -47,7 +47,15 @@ function Login() {
         // Redirect to main app
         window.location.href = '/';
       } else {
-        setError(data.message || 'Login failed. Please try again.');
+        // Handle suspension error specially
+        if (response.status === 403 && data.error === 'Account suspended') {
+          const suspendedDate = data.suspended_at ? new Date(data.suspended_at).toLocaleDateString() : 'Unknown date';
+          setError(
+            `🚫 Account Suspended\n\nYour account was suspended on ${suspendedDate}.\nReason: ${data.suspension_reason}\n\nPlease create a new account if you wish to continue using our service.`
+          );
+        } else {
+          setError(data.message || 'Login failed. Please try again.');
+        }
       }
       
     } catch (err) {
@@ -282,13 +290,15 @@ function Login() {
           {/* Error Message */}
           {error && (
             <div style={{
-              background: '#fee2e2',
-              border: '1px solid #fecaca',
+              background: error.includes('🚫 Account Suspended') ? '#fef2f2' : '#fee2e2',
+              border: error.includes('🚫 Account Suspended') ? '2px solid #ef4444' : '1px solid #fecaca',
               color: '#dc2626',
-              padding: '12px 16px',
+              padding: error.includes('🚫 Account Suspended') ? '16px' : '12px 16px',
               borderRadius: '8px',
               fontSize: '0.9rem',
-              marginBottom: '24px'
+              marginBottom: '24px',
+              whiteSpace: 'pre-line',
+              fontWeight: error.includes('🚫 Account Suspended') ? '500' : 'normal'
             }}>
               {error}
             </div>

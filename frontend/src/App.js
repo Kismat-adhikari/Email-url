@@ -232,6 +232,35 @@ function App() {
     }
   }, [user, historyMode]);
 
+  // Real-time suspension monitoring
+  useEffect(() => {
+    if (!user || !authToken) return;
+
+    const checkUserStatus = async () => {
+      try {
+        const response = await api.get('/api/auth/check-status');
+        // User is still active, continue normally
+      } catch (error) {
+        if (error.response?.status === 403 && error.response?.data?.suspended) {
+          // User has been suspended!
+          const suspensionData = error.response.data;
+          
+          // Show suspension notification
+          alert(`🚫 Account Suspended\n\nYour account has been suspended.\nReason: ${suspensionData.reason}\nDate: ${new Date(suspensionData.suspended_at).toLocaleString()}\n\nYou will be logged out automatically.`);
+          
+          // Force logout
+          handleLogout();
+        }
+      }
+    };
+
+    // Check status every 30 seconds
+    const statusInterval = setInterval(checkUserStatus, 30000);
+
+    // Cleanup interval on unmount
+    return () => clearInterval(statusInterval);
+  }, [user, authToken]);
+
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
   };

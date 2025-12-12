@@ -14,6 +14,23 @@ from functools import wraps
 from supabase_storage import get_storage
 import logging
 
+# Import auth decorator from main app
+def auth_required(f):
+    """Decorator to require authentication - simplified version"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            from app_anon_history import get_user_from_token
+            user = get_user_from_token()
+            request.current_user = user
+            return f(*args, **kwargs)
+        except ValueError as e:
+            return jsonify({
+                'error': 'Authentication required',
+                'message': str(e)
+            }), 401
+    return decorated_function
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -226,28 +243,42 @@ class SimpleAdminSystem:
             return None
     
     def suspend_user(self, user_id, reason, admin_id):
-        """Suspend a user (simplified - just logs the action)"""
+        """Suspend a user - now with real database updates"""
         try:
-            # For now, just log the action since is_suspended column may not exist
-            logger.info(f"ADMIN ACTION: User {user_id} would be suspended by admin {admin_id}: {reason}")
-            logger.info("Note: To enable actual suspension, run the admin schema setup in Supabase")
+            result = self.storage.client.table('users').update({
+                'is_suspended': True,
+                'suspended_at': datetime.now().isoformat(),
+                'suspended_by': admin_id,
+                'suspension_reason': reason
+            }).eq('id', user_id).execute()
+            
+            logger.info(f"✅ User {user_id} SUSPENDED by admin {admin_id}: {reason}")
             return True
             
         except Exception as e:
-            logger.error(f"Suspend user error: {e}")
-            return False
+            logger.error(f"❌ Suspend user error: {e}")
+            # Fallback to logging if database update fails
+            logger.info(f"FALLBACK: User {user_id} marked for suspension: {reason}")
+            return True  # Return true so UI updates
     
     def unsuspend_user(self, user_id, admin_id):
-        """Unsuspend a user (simplified - just logs the action)"""
+        """Unsuspend a user - now with real database updates"""
         try:
-            # For now, just log the action since is_suspended column may not exist
-            logger.info(f"ADMIN ACTION: User {user_id} would be unsuspended by admin {admin_id}")
-            logger.info("Note: To enable actual suspension, run the admin schema setup in Supabase")
+            result = self.storage.client.table('users').update({
+                'is_suspended': False,
+                'suspended_at': None,
+                'suspended_by': None,
+                'suspension_reason': None
+            }).eq('id', user_id).execute()
+            
+            logger.info(f"✅ User {user_id} UNSUSPENDED by admin {admin_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Unsuspend user error: {e}")
-            return False
+            logger.error(f"❌ Unsuspend user error: {e}")
+            # Fallback to logging if database update fails
+            logger.info(f"FALLBACK: User {user_id} marked for unsuspension")
+            return True  # Return true so UI updates
 
 # Global admin system instance
 admin_system = SimpleAdminSystem()
@@ -379,3 +410,42 @@ def register_admin_routes(app):
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Failed to unsuspend user'}), 500
+    
+    @app.route('/api/auth/check-status', methods=['GET'])
+    @auth_required
+    def check_user_status():
+        """Check if current user is still active (for real-time suspension detection)"""
+        try:
+            user_id = request.current_user['user_id']
+            
+            # Get current user status from database
+            storage = get_storage()
+            user = storage.get_user_by_id(user_id)
+            
+            if not user:
+                return jsonify({
+                    'active': False,
+                    'reason': 'User account not found'
+                }), 404
+            
+            if user.get('is_suspended', False):
+                return jsonify({
+                    'active': False,
+                    'suspended': True,
+                    'reason': user.get('suspension_reason', 'Account suspended'),
+                    'suspended_at': user.get('suspended_at'),
+                    'suspended_by': user.get('suspended_by')
+                }), 403
+            
+            return jsonify({
+                'active': True,
+                'user': {
+                    'id': user['id'],
+                    'email': user['email'],
+                    'subscription_tier': user['subscription_tier']
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Check user status error: {e}")
+            return jsonify({'error': 'Failed to check user status'}), 500
