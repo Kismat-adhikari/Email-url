@@ -141,6 +141,18 @@ function App() {
     return saved ? JSON.parse(saved) : false;
   });
 
+  // Admin mode detection
+  const [adminMode, setAdminMode] = useState(() => {
+    return localStorage.getItem('adminMode') === 'true';
+  });
+  const [adminToken, setAdminToken] = useState(() => {
+    return localStorage.getItem('adminToken');
+  });
+  const [adminUser, setAdminUser] = useState(() => {
+    const savedAdminUser = localStorage.getItem('adminUser');
+    return savedAdminUser ? JSON.parse(savedAdminUser) : null;
+  });
+
   const API_URL = process.env.NODE_ENV === 'production' 
     ? ''
     : 'http://localhost:5000';
@@ -150,18 +162,21 @@ function App() {
     baseURL: API_URL,
     headers: {
       'X-User-ID': anonUserId,
-      ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+      ...(adminMode && adminToken && { 'Authorization': `Bearer ${adminToken}` }),
+      ...(!adminMode && authToken && { 'Authorization': `Bearer ${authToken}` })
     }
   });
 
   // Update API headers when auth token changes
   useEffect(() => {
-    if (authToken) {
+    if (adminMode && adminToken) {
+      api.defaults.headers['Authorization'] = `Bearer ${adminToken}`;
+    } else if (authToken) {
       api.defaults.headers['Authorization'] = `Bearer ${authToken}`;
     } else {
       delete api.defaults.headers['Authorization'];
     }
-  }, [authToken, api]);
+  }, [authToken, adminMode, adminToken, api]);
 
   // Logout function
   const handleLogout = useCallback(async () => {
@@ -479,8 +494,8 @@ function App() {
       return; // User is suspended, checkUserStatus handles logout
     }
 
-    // Check if authenticated user has reached their limit
-    if (user && user.apiCallsCount >= user.apiCallsLimit) {
+    // Check if authenticated user has reached their limit (skip for admin mode)
+    if (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) {
       setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
       return;
     }
@@ -490,8 +505,15 @@ function App() {
     setResult(null);
 
     try {
-      // For anonymous users, don't send to backend database
-      const endpoint = user ? '/api/validate' : '/api/validate/local';
+      // Choose endpoint based on mode
+      let endpoint;
+      if (adminMode) {
+        endpoint = '/api/admin/validate'; // Admin unlimited endpoint
+      } else if (user) {
+        endpoint = '/api/validate'; // Regular authenticated endpoint
+      } else {
+        endpoint = '/api/validate/local'; // Anonymous endpoint
+      }
       
       const response = await api.post(endpoint, { 
         email,
@@ -640,14 +662,14 @@ function App() {
       return;
     }
 
-    // Check if authenticated user has reached their limit
-    if (user && user.apiCallsCount >= user.apiCallsLimit) {
+    // Check if authenticated user has reached their limit (skip for admin mode)
+    if (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) {
       setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
       return;
     }
 
-    // Check if batch would exceed user's remaining limit
-    if (user) {
+    // Check if batch would exceed user's remaining limit (skip for admin mode)
+    if (!adminMode && user) {
       const remainingCalls = user.apiCallsLimit - user.apiCallsCount;
       if (emails.length > remainingCalls) {
         setError(`This batch contains ${emails.length} emails, but you only have ${remainingCalls} API calls remaining. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please reduce the batch size or contact support.'}`);
@@ -665,16 +687,20 @@ function App() {
     setProgress({ current: 0, total: emails.length, percentage: 0, eta: 0, speed: 0 });
 
     try {
-      // Use different endpoint based on authentication
-      const endpoint = user ? '/api/validate/batch/stream' : '/api/validate/batch/local';
+      // Use different endpoint based on mode
+      let endpoint;
       const headers = {
         'Content-Type': 'application/json'
       };
       
-      // Add appropriate headers based on user type
-      if (user) {
+      if (adminMode) {
+        endpoint = '/api/admin/validate/batch'; // Admin unlimited endpoint
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      } else if (user) {
+        endpoint = '/api/validate/batch/stream'; // Regular authenticated endpoint
         headers['Authorization'] = `Bearer ${authToken}`;
       } else {
+        endpoint = '/api/validate/batch/local'; // Anonymous endpoint
         headers['X-User-ID'] = anonUserId;
       }
 
@@ -951,12 +977,18 @@ function App() {
 
           {/* Center Section - User Info */}
           <div className="navbar-center">
-            {user && (
+            {adminMode && adminUser ? (
+              <div className="user-greeting admin-mode">
+                <span className="wave-icon">🛡️</span>
+                <span className="greeting-text">Admin Mode: {adminUser.first_name}!</span>
+                <span className="admin-badge">UNLIMITED ACCESS</span>
+              </div>
+            ) : user ? (
               <div className="user-greeting">
                 <span className="wave-icon">👋</span>
                 <span className="greeting-text">Welcome, {user.firstName}!</span>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Right Section - API Usage & Controls */}
@@ -967,7 +999,16 @@ function App() {
             </button>
 
             {/* API Usage Counter */}
-            {user ? (
+            {adminMode ? (
+              <div className="api-usage-counter admin-unlimited">
+                <FiShield className="usage-icon" />
+                <span className="usage-text">∞/∞</span>
+                <span className="usage-label">Admin</span>
+                <div className="admin-hint">
+                  <FiZap style={{marginRight: '4px'}} /> Unlimited Access!
+                </div>
+              </div>
+            ) : user ? (
               <div className={`api-usage-counter ${user.apiCallsCount >= user.apiCallsLimit ? 'limit-reached' : user.apiCallsCount >= user.apiCallsLimit * 0.8 ? 'limit-warning' : ''}`}>
                 <FiActivity className="usage-icon" />
                 <span className="usage-text">{user.apiCallsCount || 0}/{user.apiCallsLimit}</span>

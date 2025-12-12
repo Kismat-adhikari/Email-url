@@ -158,10 +158,29 @@ const AdminDashboard = () => {
           </div>
           <button 
             className="admin-nav-btn"
-            onClick={() => window.open('/', '_blank')}
+            onClick={() => {
+              // Pass admin credentials to main app
+              const adminToken = localStorage.getItem('adminToken');
+              const adminUser = localStorage.getItem('adminUser');
+              
+              // Open main app and set admin mode
+              const newWindow = window.open('/', '_blank');
+              
+              // Wait for the new window to load, then set admin credentials
+              setTimeout(() => {
+                try {
+                  newWindow.localStorage.setItem('adminMode', 'true');
+                  newWindow.localStorage.setItem('adminToken', adminToken);
+                  newWindow.localStorage.setItem('adminUser', adminUser);
+                  newWindow.location.reload(); // Reload to apply admin mode
+                } catch (error) {
+                  console.log('Cross-origin restriction - admin will need to login manually');
+                }
+              }, 1000);
+            }}
             style={{ marginRight: '10px' }}
           >
-            <FiMail /> Email Validator
+            <FiMail /> Email Validator (Admin)
           </button>
           <button className="admin-logout-btn" onClick={handleLogout}>
             <FiLogOut /> Logout
