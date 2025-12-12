@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder='frontend/build', static_url_path='')
 CORS(app)
 
+# Register admin routes immediately after app creation
+register_admin_routes(app)
+
 # Rate limiting configuration
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX_REQUESTS = 100  # requests per window
@@ -53,6 +56,49 @@ enricher = EmailEnrichment()
 JWT_SECRET = os.getenv('JWT_SECRET', 'your-super-secret-jwt-key-change-in-production')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24
+
+# Admin JWT Configuration
+ADMIN_JWT_SECRET = os.getenv('ADMIN_JWT_SECRET', 'your-super-secret-admin-key-change-this')
+
+# ============================================================================
+# ADMIN HELPER FUNCTIONS
+# ============================================================================
+
+def is_admin_request():
+    """Check if the current request is from an admin user"""
+    try:
+        # Check for admin token in Authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return False
+        
+        token = auth_header.split(' ')[1]
+        
+        # Verify admin token
+        payload = jwt.decode(token, ADMIN_JWT_SECRET, algorithms=['HS256'])
+        return payload.get('role') == 'admin'
+    except:
+        return False
+
+def get_admin_from_request():
+    """Get admin info from the current request"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return None
+        
+        token = auth_header.split(' ')[1]
+        payload = jwt.decode(token, ADMIN_JWT_SECRET, algorithms=['HS256'])
+        
+        if payload.get('role') == 'admin':
+            return {
+                'id': payload.get('admin_id'),
+                'email': payload.get('email'),
+                'role': 'admin'
+            }
+        return None
+    except:
+        return None
 
 # ============================================================================
 # DOMAIN STATISTICS HELPER
@@ -337,6 +383,181 @@ def api_home():
         }
     })
 
+
+# ============================================================================
+# ADMIN VALIDATION ENDPOINTS (UNLIMITED ACCESS)
+# ============================================================================
+
+@app.route('/api/admin/validate', methods=['POST'])
+def admin_validate_email():
+    """
+    Admin-only email validation endpoint with unlimited access.
+    
+    Headers:
+        Authorization: Bearer <admin_token> (required)
+    
+    Request body:
+        {
+            "email": "user@example.com",
+            "advanced": true
+        }
+    
+    Response:
+        Same as regular validation but with unlimited access
+    """
+    start_time = time.time()
+    
+    try:
+        # Verify admin authentication
+        admin = get_admin_from_request()
+        if not admin:
+            return jsonify({
+                'error': 'Admin authentication required',
+                'message': 'This endpoint requires admin privileges'
+            }), 401
+        
+        data = request.get_json()
+        
+        if not data or 'email' not in data:
+            return jsonify({
+                'error': 'Missing email parameter',
+                'message': 'Please provide an email address'
+            }), 400
+        
+        email = data['email']
+        advanced = data.get('advanced', True)
+        
+        logger.info(f"Admin validation request: {email} (advanced: {advanced}) by {admin['email']}")
+        
+        # Perform validation (same as regular endpoint but unlimited)
+        if advanced:
+            result = validate_email_tiered(email, tier='premium')
+        else:
+            result = validate_email_advanced(email)
+        
+        # Add admin-specific metadata
+        result['admin_validation'] = True
+        result['admin_user'] = admin['email']
+        result['processing_time'] = round(time.time() - start_time, 3)
+        result['unlimited_access'] = True
+        
+        logger.info(f"Admin validation completed: {email} (valid: {result['valid']}) by {admin['email']}")
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"Admin validation failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Admin validation failed',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/admin/validate/batch', methods=['POST'])
+def admin_validate_batch():
+    """
+    Admin-only batch validation endpoint with unlimited access.
+    
+    Headers:
+        Authorization: Bearer <admin_token> (required)
+    
+    Request body:
+        {
+            "emails": ["user1@example.com", "user2@test.com"],
+            "advanced": true
+        }
+    
+    Response:
+        {
+            "results": [...],
+            "total": 100,
+            "valid_count": 85,
+            "invalid_count": 15,
+            "admin_validation": true,
+            "unlimited_access": true
+        }
+    """
+    start_time = time.time()
+    
+    try:
+        # Verify admin authentication
+        admin = get_admin_from_request()
+        if not admin:
+            return jsonify({
+                'error': 'Admin authentication required',
+                'message': 'This endpoint requires admin privileges'
+            }), 401
+        
+        data = request.get_json()
+        
+        if not data or 'emails' not in data:
+            return jsonify({
+                'error': 'Missing emails parameter',
+                'message': 'Please provide a list of email addresses'
+            }), 400
+        
+        emails = data.get('emails', [])
+        advanced = data.get('advanced', True)
+        
+        if not emails:
+            return jsonify({
+                'error': 'Empty email list',
+                'message': 'Please provide at least one email address'
+            }), 400
+        
+        logger.info(f"Admin batch validation: {len(emails)} emails (advanced: {advanced}) by {admin['email']}")
+        
+        # Process all emails (unlimited)
+        results = []
+        valid_count = 0
+        invalid_count = 0
+        
+        for email in emails:
+            try:
+                if advanced:
+                    result = validate_email_tiered(email, tier='premium')
+                else:
+                    result = validate_email_advanced(email)
+                
+                results.append(result)
+                
+                if result.get('valid'):
+                    valid_count += 1
+                else:
+                    invalid_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Admin batch validation error for {email}: {str(e)}")
+                results.append({
+                    'email': email,
+                    'valid': False,
+                    'error': str(e),
+                    'reason': 'Validation failed'
+                })
+                invalid_count += 1
+        
+        processing_time = round(time.time() - start_time, 3)
+        
+        response = {
+            'results': results,
+            'total': len(emails),
+            'valid_count': valid_count,
+            'invalid_count': invalid_count,
+            'processing_time': processing_time,
+            'admin_validation': True,
+            'admin_user': admin['email'],
+            'unlimited_access': True
+        }
+        
+        logger.info(f"Admin batch validation completed: {len(emails)} emails ({valid_count} valid, {invalid_count} invalid) by {admin['email']}")
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"Admin batch validation failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Admin batch validation failed',
+            'message': str(e)
+        }), 500
 
 @app.route('/api/health')
 def health():
@@ -856,8 +1077,9 @@ def validate_email():
                     'suspended': True
                 }), 403
                 
-            # Check API limits
-            if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+            # Check API limits (bypass for admin users)
+            is_admin = is_admin_request()
+            if not is_admin and authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
                 return jsonify({
                     'error': 'API limit exceeded',
                     'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
@@ -1000,8 +1222,8 @@ def validate_email():
             result['record_id'] = record['id']
             result['stored'] = True
             
-            # Increment API usage for authenticated users
-            if authenticated_user:
+            # Increment API usage for authenticated users (skip for admins)
+            if authenticated_user and not is_admin:
                 try:
                     storage.increment_api_usage(user_id, 1)
                     new_count = authenticated_user['api_calls_count'] + 1
@@ -1013,6 +1235,14 @@ def validate_email():
                     logger.info(f"API usage incremented for user {user_id}: {new_count}/{authenticated_user['api_calls_limit']}")
                 except Exception as e:
                     logger.error(f"Failed to increment API usage: {str(e)}")
+            elif is_admin:
+                # For admin users, show unlimited usage
+                result['api_usage'] = {
+                    'calls_used': 0,
+                    'calls_limit': 'unlimited',
+                    'calls_remaining': 'unlimited'
+                }
+                logger.info(f"Admin validation (unlimited): {email}")
             
             logger.info(f"Validation stored in database: {email} (valid: {result['valid']}, score: {result.get('confidence_score')}) for user {user_id}")
         except Exception as e:
@@ -1563,8 +1793,9 @@ def validate_batch_stream():
         advanced = data.get('advanced', True)
         remove_duplicates = data.get('remove_duplicates', True)
         
-        # Check API limits and subscription tier for authenticated users BEFORE processing
-        if authenticated_user:
+        # Check API limits and subscription tier for authenticated users BEFORE processing (bypass for admins)
+        is_admin = is_admin_request()
+        if authenticated_user and not is_admin:
             # Block batch validation for free tier users
             if authenticated_user.get('subscription_tier', 'free') == 'free':
                 return jsonify({
@@ -1593,6 +1824,8 @@ def validate_batch_stream():
                     'batch_size': len(emails),
                     'remaining_calls': remaining_calls
                 }), 429
+        elif is_admin:
+            logger.info(f"Admin batch validation (unlimited): {len(emails)} emails")
         
         # Track original count
         original_count = len(emails)
@@ -1720,13 +1953,15 @@ def validate_batch_stream():
                                     'is_role_based': result.get('checks', {}).get('is_role_based', False)
                                 })
                                 
-                                # Increment API usage for authenticated users
-                                if authenticated_user and user_id:
+                                # Increment API usage for authenticated users (skip for admins)
+                                if authenticated_user and user_id and not is_admin_request():
                                     try:
                                         storage.increment_api_usage(user_id, 1)
                                         logger.debug(f"API usage incremented for user {user_id}")
                                     except Exception as e:
                                         logger.error(f"Failed to increment API usage: {str(e)}")
+                                elif is_admin_request():
+                                    logger.debug(f"Admin batch validation (unlimited): {result.get('email')}")
                                         
                             except Exception as e:
                                 logger.error(f"Failed to store validation: {str(e)}")
@@ -2876,9 +3111,6 @@ def test_bounce_recording():
 # ============================================================================
 
 if __name__ == '__main__':
-    # Register admin routes
-    register_admin_routes(app)
-    
     print("=" * 70)
     print("Email Platform - Validate & Send Emails + Admin System")
     print("=" * 70)
