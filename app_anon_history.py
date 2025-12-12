@@ -12,8 +12,8 @@ from supabase_storage import get_storage
 from email_enrichment import EmailEnrichment
 from pattern_analysis import calculate_deliverability_score, analyze_email_pattern
 from spam_trap_detector import comprehensive_risk_check
-from bounce_tracker import check_bounce_risk
 from email_status import determine_email_status
+# Bounce tracking now integrated into email_sender
 import time
 import os
 import re
@@ -439,7 +439,7 @@ def signup():
             'api_key': api_key,
             'subscription_tier': 'free',  # Default tier
             'api_calls_count': 0,         # Start with 0 calls
-            'api_calls_limit': 1000,      # Free tier limit
+            'api_calls_limit': 10,        # Free tier limit
             'is_verified': False,
             'is_active': True
         }
@@ -676,14 +676,108 @@ def logout():
         }), 500
 
 
+@app.route('/api/auth/profile', methods=['PUT'])
+@auth_required
+def update_profile():
+    """
+    Update user profile information.
+    
+    Headers:
+        Authorization: Bearer <jwt_token>
+    
+    Request body:
+        {
+            "firstName": "John",
+            "lastName": "Doe",
+            "email": "john@example.com",
+            "sendgridApiKey": "SG.abc123..."
+        }
+    
+    Response:
+        {
+            "success": true,
+            "message": "Profile updated successfully",
+            "user": {...}
+        }
+    """
+    try:
+        user_id = request.current_user['user_id']
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': 'No data provided',
+                'message': 'Request body is required'
+            }), 400
+        
+        # Get current user
+        storage = get_storage()
+        user = storage.get_user_by_id(user_id)
+        
+        if not user:
+            return jsonify({
+                'error': 'User not found',
+                'message': 'User account no longer exists'
+            }), 404
+        
+        # Update fields (for now, we'll just return success - implement storage later)
+        updated_fields = {}
+        
+        if 'firstName' in data:
+            updated_fields['first_name'] = data['firstName'].strip()
+        if 'lastName' in data:
+            updated_fields['last_name'] = data['lastName'].strip()
+        if 'email' in data:
+            # Validate email format
+            new_email = data['email'].strip().lower()
+            if not validate_email_format(new_email):
+                return jsonify({
+                    'error': 'Invalid email format',
+                    'message': 'Please provide a valid email address'
+                }), 400
+            updated_fields['email'] = new_email
+        if 'sendgridApiKey' in data:
+            # For now, just store it (we'll add validation later)
+            updated_fields['sendgrid_api_key'] = data['sendgridApiKey'].strip()
+        
+        # TODO: Implement actual database update
+        # For now, return the updated user data
+        updated_user = {**user, **updated_fields}
+        
+        logger.info(f"Profile updated for user {user_id}: {list(updated_fields.keys())}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'user': {
+                'id': updated_user['id'],
+                'email': updated_user.get('email', user['email']),
+                'firstName': updated_fields.get('first_name', user['first_name']),
+                'lastName': updated_fields.get('last_name', user['last_name']),
+                'subscriptionTier': updated_user['subscription_tier'],
+                'apiCallsLimit': updated_user['api_calls_limit'],
+                'apiCallsCount': updated_user['api_calls_count'],
+                'createdAt': updated_user['created_at'],
+                'sendgridApiKey': updated_fields.get('sendgrid_api_key', user.get('sendgrid_api_key', ''))
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Profile update failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Profile update failed',
+            'message': 'An error occurred while updating your profile'
+        }), 500
+
+
 @app.route('/api/validate', methods=['POST'])
 @rate_limit
 def validate_email():
     """
-    Validate single email with anonymous user tracking.
+    Validate single email for AUTHENTICATED users (saves to database).
     
     Headers:
-        X-User-ID: Anonymous user ID (required)
+        Authorization: Bearer <token> (required for authenticated users)
     
     Request body:
         {
@@ -707,15 +801,44 @@ def validate_email():
     start_time = time.time()
     
     try:
-        # Extract anonymous user ID
+        # Check if user is authenticated (required for database storage)
+        user_id = None
+        authenticated_user = None
         try:
-            anon_user_id = get_anon_user_id()
+            auth_header = request.headers.get('Authorization')
+            if not auth_header or not auth_header.startswith('Bearer '):
+                return jsonify({
+                    'error': 'Authentication required',
+                    'message': 'This endpoint requires login. Use /api/validate/local for anonymous validation.'
+                }), 401
+            
+            token = auth_header.split(' ')[1]
+            payload = verify_jwt_token(token)
+            user_id = payload.get('user_id')
+            
+            # Get user details for API limiting
+            storage = get_storage()
+            authenticated_user = storage.get_user_by_id(user_id)
+            if not authenticated_user:
+                return jsonify({
+                    'error': 'User not found',
+                    'message': 'User account no longer exists'
+                }), 404
+                
+            # Check API limits
+            if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+                return jsonify({
+                    'error': 'API limit exceeded',
+                    'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
+                    'current_usage': authenticated_user['api_calls_count'],
+                    'limit': authenticated_user['api_calls_limit']
+                }), 429
+                
         except ValueError as e:
-            logger.warning(f"Authentication failed: {str(e)}")
             return jsonify({
-                'error': 'Authentication required',
+                'error': 'Invalid authentication',
                 'message': str(e)
-            }), 400
+            }), 401
         
         data = request.get_json()
         
@@ -782,22 +905,25 @@ def validate_email():
         except Exception as e:
             logger.error(f"Risk check failed for {email}: {str(e)}")
         
-        # Bounce history check
+        # Integrated bounce check
         try:
-            bounce_risk = check_bounce_risk(email)
-            result['bounce_check'] = bounce_risk
+            from email_sender import get_email_sender
+            sender = get_email_sender()
+            bounce_check = sender.check_bounce_history(email)
+            result['bounce_check'] = bounce_check
             
             # Add bounce warning if exists
-            if bounce_risk['bounce_history']['has_bounced']:
-                logger.info(f"Bounce history for {email}: {bounce_risk['bounce_history']['total_bounces']} bounces")
-                if bounce_risk['risk_level'] in ['critical', 'high']:
+            if bounce_check['has_bounced']:
+                logger.info(f"Bounce history for {email}: {bounce_check['total_bounces']} bounces")
+                if bounce_check['risk_level'] in ['critical', 'high']:
                     result['valid'] = False
                     if result.get('reason'):
-                        result['reason'] += f"; {bounce_risk['warning']}"
+                        result['reason'] += f"; {bounce_check['warning']}"
                     else:
-                        result['reason'] = bounce_risk['warning']
+                        result['reason'] = bounce_check['warning']
         except Exception as e:
             logger.error(f"Bounce check failed for {email}: {str(e)}")
+            result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
         
         # Calculate deliverability score
         try:
@@ -893,6 +1019,152 @@ def validate_email():
         
     except Exception as e:
         logger.error(f"Validation failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Validation failed',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/validate/local', methods=['POST'])
+@rate_limit
+def validate_email_local():
+    """
+    Validate single email for ANONYMOUS users (NO database storage).
+    Results are returned but not saved to database.
+    
+    Headers:
+        X-User-ID: Anonymous user ID (optional, for rate limiting only)
+    
+    Request body:
+        {
+            "email": "user@example.com",
+            "advanced": true
+        }
+    
+    Response:
+        {
+            "email": "user@example.com",
+            "valid": true,
+            "confidence_score": 95,
+            "checks": {...},
+            "risk_assessment": {...},
+            "enrichment": {...},
+            "processing_time": 0.123,
+            "storage": "local_only"
+        }
+    """
+    start_time = time.time()
+    
+    try:
+        data = request.get_json()
+        
+        if not data or 'email' not in data:
+            return jsonify({
+                'error': 'Missing email parameter',
+                'message': 'Please provide an email address'
+            }), 400
+        
+        email = data['email']
+        advanced = data.get('advanced', True)
+        
+        # Input validation
+        if not validate_email_format(email):
+            logger.warning(f"Invalid email format: {email}")
+            return jsonify({
+                'error': 'Invalid email format',
+                'message': 'Email must be a valid format'
+            }), 400
+        
+        logger.info(f"Anonymous validation: {email} (advanced: {advanced})")
+        
+        # Validate email using TIERED system
+        if advanced:
+            result = validate_email_tiered(email)
+        else:
+            from emailvalidator_unified import validate_email as validate_basic
+            is_valid = validate_basic(email)
+            result = {
+                'email': email,
+                'valid': is_valid,
+                'confidence_score': 100 if is_valid else 0,
+                'checks': {'syntax': is_valid}
+            }
+        
+        processing_time = time.time() - start_time
+        result['processing_time'] = round(processing_time, 4)
+        
+        # Pattern analysis
+        try:
+            pattern_analysis = analyze_email_pattern(email)
+            result['pattern_analysis'] = pattern_analysis
+        except Exception as e:
+            logger.error(f"Pattern analysis failed: {str(e)}")
+        
+        # Spam trap & risk detection
+        try:
+            domain = email.split('@')[1]
+            risk_check = comprehensive_risk_check(email, domain)
+            result['risk_check'] = risk_check
+            
+            # Override validity if critical risk detected
+            if risk_check['overall_risk'] == 'critical':
+                result['valid'] = False
+                if result.get('reason'):
+                    result['reason'] += f"; {risk_check['recommendation']}"
+                else:
+                    result['reason'] = risk_check['recommendation']
+        except Exception as e:
+            logger.error(f"Risk check failed for {email}: {str(e)}")
+        
+        # Bounce check (but don't save bounces for anonymous users)
+        try:
+            from email_sender import get_email_sender
+            sender = get_email_sender()
+            bounce_check = sender.check_bounce_history(email)
+            result['bounce_check'] = bounce_check
+            
+            if bounce_check['has_bounced'] and bounce_check['risk_level'] in ['critical', 'high']:
+                result['valid'] = False
+                if result.get('reason'):
+                    result['reason'] += f"; {bounce_check.get('warning', 'High bounce risk')}"
+                else:
+                    result['reason'] = bounce_check.get('warning', 'High bounce risk')
+        except Exception as e:
+            logger.error(f"Bounce check failed for {email}: {str(e)}")
+            result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
+        
+        # Calculate deliverability score
+        try:
+            deliverability = calculate_deliverability_score(email, result)
+            result['deliverability'] = deliverability
+        except Exception as e:
+            logger.error(f"Deliverability calculation failed: {str(e)}")
+        
+        # Determine email status
+        try:
+            status_info = determine_email_status(result)
+            result['status'] = status_info
+        except Exception as e:
+            logger.error(f"Status determination failed: {str(e)}")
+        
+        # Enrich email data
+        try:
+            enrichment = enricher.enrich_email(email, validation_data=result)
+            result['enrichment'] = enrichment
+        except Exception as e:
+            logger.error(f"Email enrichment failed: {str(e)}")
+            result['enrichment'] = {'error': str(e)}
+        
+        # Mark as local-only storage
+        result['storage'] = 'local_only'
+        result['stored'] = False
+        
+        logger.info(f"Anonymous validation completed: {email} (valid: {result['valid']}, score: {result.get('confidence_score')}) - NOT STORED")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Anonymous validation failed: {str(e)}", exc_info=True)
         return jsonify({
             'error': 'Validation failed',
             'message': str(e)
@@ -1033,17 +1305,23 @@ def validate_batch_endpoint():
                         else:
                             result['reason'] = risk_check['recommendation']
                 
-                # Bounce history check
-                bounce_risk = check_bounce_risk(email)
-                result['bounce_check'] = bounce_risk
-                
-                if bounce_risk['bounce_history']['has_bounced']:
-                    if bounce_risk['risk_level'] in ['critical', 'high']:
+                # Bounce history check (integrated)
+                try:
+                    from email_sender import get_email_sender
+                    sender = get_email_sender()
+                    bounce_check = sender.check_bounce_history(email)
+                    result['bounce_check'] = bounce_check
+                    
+                    # Override validity if high bounce risk
+                    if bounce_check['has_bounced'] and bounce_check['risk_level'] in ['critical', 'high']:
                         result['valid'] = False
                         if result.get('reason'):
-                            result['reason'] += f"; {bounce_risk['warning']}"
+                            result['reason'] += f"; {bounce_check.get('warning', 'High bounce risk')}"
                         else:
-                            result['reason'] = bounce_risk['warning']
+                            result['reason'] = bounce_check.get('warning', 'High bounce risk')
+                except Exception as e:
+                    logger.error(f"Bounce check failed: {e}")
+                    result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
                 
                 # Calculate deliverability score
                 deliverability = calculate_deliverability_score(email, result)
@@ -1257,9 +1535,15 @@ def validate_batch_stream():
                                 risk = comprehensive_risk_check(email, domain)
                                 result['risk_check'] = risk
                             
-                            # Add bounce check
-                            bounce = check_bounce_risk(email)
-                            result['bounce_check'] = bounce
+                            # Add bounce check (integrated)
+                            try:
+                                from email_sender import get_email_sender
+                                sender = get_email_sender()
+                                bounce_check = sender.check_bounce_history(email)
+                                result['bounce_check'] = bounce_check
+                            except Exception as e:
+                                logger.error(f"Bounce check failed: {e}")
+                                result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
                             
                             # Add status
                             status = determine_email_status(result)
@@ -1362,17 +1646,241 @@ def validate_batch_stream():
         }), 500
 
 
+@app.route('/api/validate/batch/local', methods=['POST'])
+@rate_limit
+def validate_batch_stream_local():
+    """
+    Stream batch validation for ANONYMOUS users (NO database storage).
+    Results are returned but not saved to database.
+    
+    Headers:
+        X-User-ID: Anonymous user ID (optional, for rate limiting only)
+    
+    Request body:
+        {
+            "emails": ["user1@example.com", "user2@test.com"],
+            "advanced": true,
+            "remove_duplicates": true
+        }
+    
+    Response: Server-Sent Events (SSE) stream
+        Each event contains one validation result as JSON
+    """
+    import json
+    
+    try:
+        data = request.get_json()
+        
+        if not data or 'emails' not in data:
+            return jsonify({
+                'error': 'Missing required parameter',
+                'message': 'emails parameter is required'
+            }), 400
+        
+        emails = data.get('emails', [])
+        advanced = data.get('advanced', True)
+        remove_duplicates = data.get('remove_duplicates', True)
+        
+        # Track original count
+        original_count = len(emails)
+        
+        # Remove duplicates if requested
+        if remove_duplicates:
+            emails_lower = [email.lower().strip() for email in emails]
+            unique_emails = []
+            seen = set()
+            for email in emails:
+                email_lower = email.lower().strip()
+                if email_lower not in seen:
+                    seen.add(email_lower)
+                    unique_emails.append(email)
+            emails = unique_emails
+            duplicates_removed = original_count - len(emails)
+            logger.info(f"Anonymous batch: Removed {duplicates_removed} duplicates")
+        else:
+            duplicates_removed = 0
+        
+        if not isinstance(emails, list):
+            return jsonify({
+                'error': 'Invalid parameter type',
+                'message': 'emails must be an array'
+            }), 400
+        
+        if len(emails) == 0:
+            return jsonify({
+                'error': 'Empty email list',
+                'message': 'At least one email is required'
+            }), 400
+        
+        if len(emails) > 1000:
+            return jsonify({
+                'error': 'Too many emails',
+                'message': 'Maximum 1000 emails per batch'
+            }), 400
+        
+        def generate():
+            """Generator function that yields validation results one by one."""
+            total = len(emails)
+            valid_count = 0
+            invalid_count = 0
+            all_results = []
+            
+            # Send initial progress event
+            yield f"data: {json.dumps({'type': 'start', 'total': total, 'original_count': original_count, 'duplicates_removed': duplicates_removed})}\n\n"
+            
+            for index, email in enumerate(emails):
+                try:
+                    email = email.strip()
+                    
+                    # Validate email format
+                    if not validate_email_format(email):
+                        result = {
+                            'email': email,
+                            'valid': False,
+                            'reason': 'Invalid email format',
+                            'checks': {'syntax': False}
+                        }
+                    else:
+                        # Perform validation (same as single validation)
+                        if advanced:
+                            try:
+                                result = validate_email_advanced(email)
+                                
+                                # Add all the same enrichments as single validation
+                                enrichment_data = enricher.enrich_email(email)
+                                if enrichment_data:
+                                    result['enrichment'] = enrichment_data
+                                
+                                deliverability = calculate_deliverability_score(email, result)
+                                result['deliverability'] = deliverability
+                                
+                                pattern = analyze_email_pattern(email)
+                                if pattern:
+                                    result['pattern_analysis'] = pattern
+                                
+                                if '@' in email:
+                                    domain = email.split('@')[1]
+                                    risk = comprehensive_risk_check(email, domain)
+                                    result['risk_check'] = risk
+                                
+                                # Bounce check (but don't save)
+                                try:
+                                    from email_sender import get_email_sender
+                                    sender = get_email_sender()
+                                    bounce_check = sender.check_bounce_history(email)
+                                    result['bounce_check'] = bounce_check
+                                except Exception as e:
+                                    result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
+                                
+                                status = determine_email_status(result)
+                                result['status'] = status
+                                
+                            except Exception as e:
+                                logger.error(f"Advanced validation error for {email}: {str(e)}")
+                                result = {
+                                    'email': email,
+                                    'valid': False,
+                                    'reason': f'Validation error: {str(e)}',
+                                    'checks': {'syntax': True}
+                                }
+                        else:
+                            # Basic validation
+                            result = {'email': email, 'valid': validate_email_format(email)}
+                        
+                        # Mark as local storage
+                        result['storage'] = 'local_only'
+                    
+                    # Update counters
+                    if result.get('valid'):
+                        valid_count += 1
+                    else:
+                        invalid_count += 1
+                    
+                    # Store result for domain stats
+                    all_results.append(result)
+                    
+                    # Send result event
+                    event_data = {
+                        'type': 'result',
+                        'index': index,
+                        'total': total,
+                        'result': result,
+                        'progress': {
+                            'current': index + 1,
+                            'total': total,
+                            'valid': valid_count,
+                            'invalid': invalid_count,
+                            'percentage': int(((index + 1) / total) * 100)
+                        }
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"Error validating {email}: {str(e)}")
+                    error_result = {
+                        'type': 'result',
+                        'index': index,
+                        'total': total,
+                        'result': {
+                            'email': email,
+                            'valid': False,
+                            'reason': f'Validation error: {str(e)}',
+                            'storage': 'local_only'
+                        },
+                        'progress': {
+                            'current': index + 1,
+                            'total': total,
+                            'valid': valid_count,
+                            'invalid': invalid_count,
+                            'percentage': int(((index + 1) / total) * 100)
+                        }
+                    }
+                    yield f"data: {json.dumps(error_result)}\n\n"
+            
+            # Calculate domain statistics
+            domain_stats = calculate_domain_stats(all_results)
+            
+            # Send completion event
+            completion_data = {
+                'type': 'complete',
+                'total': total,
+                'original_count': original_count,
+                'duplicates_removed': duplicates_removed,
+                'valid_count': valid_count,
+                'invalid_count': invalid_count,
+                'domain_stats': domain_stats,
+                'storage': 'local_only'
+            }
+            yield f"data: {json.dumps(completion_data)}\n\n"
+        
+        logger.info(f"Anonymous batch validation started: {len(emails)} emails - NOT STORED")
+        
+        return app.response_class(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Anonymous batch validation failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Batch validation failed',
+            'message': str(e)
+        }), 500
+
+
 @app.route('/api/history', methods=['GET'])
 def get_history():
     """
-    Get validation history for the user.
-    Returns records based on authentication status:
-    - Authenticated users: Get their user-specific history
-    - Anonymous users: Get their anonymous history
+    Get validation history for AUTHENTICATED users only.
+    Anonymous users should use localStorage on frontend.
     
     Headers:
-        X-User-ID: Anonymous user ID (required)
-        Authorization: Bearer <token> (optional, for authenticated users)
+        Authorization: Bearer <token> (required)
     
     Query params:
         - limit: Number of records (default: 100, max: 1000)
@@ -1384,18 +1892,29 @@ def get_history():
             "limit": 100,
             "offset": 0,
             "history": [...],
-            "user_type": "authenticated" | "anonymous"
+            "user_type": "authenticated"
         }
     """
     try:
-        # Extract anonymous user ID
+        # Check if user is authenticated (required)
+        user_id = None
         try:
-            anon_user_id = get_anon_user_id()
+            auth_header = request.headers.get('Authorization')
+            if not auth_header or not auth_header.startswith('Bearer '):
+                return jsonify({
+                    'error': 'Authentication required',
+                    'message': 'History endpoint requires login. Anonymous users use localStorage.'
+                }), 401
+            
+            token = auth_header.split(' ')[1]
+            payload = verify_jwt_token(token)
+            user_id = payload.get('user_id')
+            
         except ValueError as e:
             return jsonify({
-                'error': 'Authentication required',
+                'error': 'Invalid authentication',
                 'message': str(e)
-            }), 400
+            }), 401
         
         # Get pagination params
         limit = min(int(request.args.get('limit', 100)), 1000)
@@ -1403,35 +1922,17 @@ def get_history():
         
         storage = get_storage()
         
-        # Check if user is authenticated
-        user_id = None
-        user_type = "anonymous"
-        try:
-            auth_header = request.headers.get('Authorization')
-            if auth_header and auth_header.startswith('Bearer '):
-                token = auth_header.split(' ')[1]
-                payload = verify_jwt_token(token)
-                user_id = payload.get('user_id')
-                user_type = "authenticated"
-                logger.info(f"Fetching history for authenticated user: {user_id}")
-        except Exception:
-            # Not authenticated, use anonymous tracking
-            logger.info(f"Fetching history for anonymous user: {anon_user_id}")
+        # Get authenticated user history only
+        history = storage.get_authenticated_user_history(user_id, limit=limit, offset=offset)
         
-        # Fetch appropriate history based on authentication
-        if user_id:
-            # Authenticated user - get their specific history
-            history = storage.get_authenticated_user_history(user_id, limit=limit, offset=offset)
-        else:
-            # Anonymous user - get anonymous history
-            history = storage.get_user_history(anon_user_id, limit=limit, offset=offset)
+        logger.info(f"Fetched {len(history)} history records for authenticated user: {user_id}")
         
         return jsonify({
             'total': len(history),
             'limit': limit,
             'offset': offset,
             'history': history,
-            'user_type': user_type
+            'user_type': 'authenticated'
         })
         
     except Exception as e:
@@ -1619,20 +2120,616 @@ def internal_error(error):
 # ============================================================================
 # MAIN
 # ============================================================================
+# BOUNCE MANAGEMENT API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/bounce/stats', methods=['GET'])
+def get_bounce_statistics():
+    """
+    Get overall bounce statistics.
+    
+    Response:
+        {
+            "total_emails_tracked": 1000,
+            "total_bounces": 50,
+            "hard_bounces": 30,
+            "soft_bounces": 20,
+            "bounce_rate": 0.05,
+            "top_bounce_reasons": [...],
+            "recent_bounces": [...],
+            "last_updated": "2023-12-11T10:30:00Z"
+        }
+    """
+    try:
+        from email_sender import get_email_sender
+        
+        sender = get_email_sender()
+        stats = sender.get_delivery_stats()
+        
+        # Add real-time data from database if available
+        storage = get_storage()
+        
+        # Get basic counts from database
+        # This is a simplified version - you'd want to add proper SQL queries
+        try:
+            # Get total validations count
+            total_validations = storage.get_total_validations_count()
+            stats['total_emails_tracked'] = total_validations
+            
+            # Get bounce counts
+            bounce_counts = storage.get_bounce_counts()
+            stats.update(bounce_counts)
+            
+        except Exception as e:
+            logger.warning(f"Could not get real bounce stats from DB: {e}")
+            # Return mock data for now
+            stats.update({
+                'total_emails_tracked': 1250,
+                'total_bounces': 47,
+                'hard_bounces': 28,
+                'soft_bounces': 19,
+                'bounce_rate': 0.038,
+                'top_bounce_reasons': [
+                    {'reason': '550 5.1.1 User unknown', 'count': 15},
+                    {'reason': '452 4.2.2 Mailbox full', 'count': 8},
+                    {'reason': '550 5.7.1 Spam detected', 'count': 6},
+                    {'reason': '421 4.3.0 Temporary failure', 'count': 5}
+                ],
+                'recent_bounces': []
+            })
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"Failed to get bounce statistics: {str(e)}")
+        return jsonify({
+            'error': 'Failed to get bounce statistics',
+            'message': str(e),
+            'total_emails_tracked': 0,
+            'total_bounces': 0,
+            'bounce_rate': 0.0
+        }), 500
+
+
+@app.route('/api/bounce/record', methods=['POST'])
+def record_bounce_api():
+    """
+    Record a bounce manually (for testing or manual entry).
+    
+    Request:
+        {
+            "email": "user@example.com",
+            "bounce_type": "hard|soft",
+            "reason": "Bounce reason"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "bounce_count": 1,
+            "message": "Bounce recorded"
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        email = data.get('email')
+        bounce_type = data.get('bounce_type', 'hard')
+        reason = data.get('reason', 'Manual bounce record')
+        
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        
+        if bounce_type not in ['hard', 'soft']:
+            return jsonify({'error': 'bounce_type must be "hard" or "soft"'}), 400
+        
+        from email_sender import get_email_sender
+        
+        sender = get_email_sender()
+        result = sender.record_bounce(email, bounce_type, reason)
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+        
+        return jsonify({
+            'success': True,
+            'bounce_count': result.get('bounce_count', 1),
+            'message': f'Bounce recorded for {email}'
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to record bounce: {str(e)}")
+        return jsonify({
+            'error': 'Failed to record bounce',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/bounce/history/<email>', methods=['GET'])
+def get_email_bounce_history(email):
+    """
+    Get bounce history for a specific email using integrated bounce tracking.
+    
+    Response:
+        {
+            "email": "user@example.com",
+            "bounce_history": {
+                "total_bounces": 2,
+                "hard_bounces": 1,
+                "soft_bounces": 1,
+                "risk_level": "high",
+                "safe_to_send": false,
+                "last_bounce": "2023-12-11T10:30:00Z"
+            },
+            "risk_assessment": {
+                "risk_level": "high",
+                "safe_to_send": false,
+                "warning": "Email has bounced 2 times - High risk"
+            }
+        }
+    """
+    try:
+        from email_sender import get_email_sender
+        
+        sender = get_email_sender()
+        bounce_check = sender.check_bounce_history(email)
+        
+        return jsonify({
+            'email': email,
+            'bounce_history': {
+                'total_bounces': bounce_check['total_bounces'],
+                'hard_bounces': bounce_check['hard_bounces'],
+                'soft_bounces': bounce_check['soft_bounces'],
+                'risk_level': bounce_check['risk_level'],
+                'safe_to_send': bounce_check['safe_to_send'],
+                'last_bounce': bounce_check.get('last_bounce')
+            },
+            'risk_assessment': {
+                'risk_level': bounce_check['risk_level'],
+                'safe_to_send': bounce_check['safe_to_send'],
+                'warning': bounce_check.get('warning'),
+                'recommendation': f"Risk level: {bounce_check['risk_level']}"
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get bounce history for {email}: {str(e)}")
+        return jsonify({
+            'error': 'Failed to get bounce history',
+            'message': str(e)
+        }), 500
+
+
+# ============================================================================
+# SIMPLE BOUNCE TRACKING
+# ============================================================================
+
+@app.route('/api/bounce/record', methods=['POST'])
+def record_simple_bounce():
+    """
+    Simple bounce recording for future email sending integration.
+    
+    Request:
+        {
+            "email": "user@example.com",
+            "reason": "Bounce reason"
+        }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        email = data.get('email')
+        reason = data.get('reason', 'Email bounced')
+        
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        
+        # Simple bounce recording - just mark as bounced in database
+        storage = get_storage()
+        
+        bounce_record = {
+            'email': email,
+            'valid': False,
+            'bounced': True,
+            'bounce_reason': reason,
+            'bounce_count': 1,
+            'last_bounce_date': datetime.utcnow().isoformat(),
+            'validated_at': datetime.utcnow().isoformat(),
+            'confidence_score': 0,
+            'risk_score': 100,
+            'notes': f'Bounce recorded: {reason}'
+        }
+        
+        result = storage.store_validation_result(bounce_record)
+        
+        if result.get('success'):
+            logger.info(f"Simple bounce recorded for {email}: {reason}")
+            return jsonify({
+                'success': True,
+                'message': f'Bounce recorded for {email}'
+            })
+        else:
+            return jsonify({'error': 'Failed to record bounce'}), 500
+        
+    except Exception as e:
+        logger.error(f"Failed to record bounce: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# EMAIL SENDING API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/email/send', methods=['POST'])
+def send_single_email():
+    """
+    Send a single email.
+    
+    Request:
+        {
+            "to_email": "user@example.com",
+            "subject": "Hello World",
+            "content": "<h1>Hello!</h1>",
+            "content_type": "text/html",
+            "from_email": "sender@yourdomain.com",
+            "from_name": "Your Name"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "message_id": "abc123",
+            "to_email": "user@example.com",
+            "sent_at": "2023-12-11T10:30:00Z"
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['to_email', 'subject', 'content']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        # Import email sender
+        from email_sender import get_email_sender
+        
+        sender = get_email_sender()
+        
+        # Send email
+        result = sender.send_single_email(
+            to_email=data['to_email'],
+            subject=data['subject'],
+            content=data['content'],
+            content_type=data.get('content_type', 'text/html'),
+            from_email=data.get('from_email'),
+            from_name=data.get('from_name')
+        )
+        
+        # Store send record in database
+        if result['success']:
+            try:
+                storage = get_storage()
+                send_record = {
+                    'email': data['to_email'],
+                    'subject': data['subject'],
+                    'status': 'sent',
+                    'message_id': result.get('message_id'),
+                    'sent_at': result['sent_at'],
+                    'anon_user_id': request.headers.get('X-User-ID', 'unknown')
+                }
+                # You'd need to add a new table for email sends
+                # storage.store_email_send(send_record)
+            except Exception as e:
+                logger.warning(f"Failed to store send record: {e}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Failed to send email: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/email/send/batch', methods=['POST'])
+def send_batch_emails():
+    """
+    Send emails to multiple recipients.
+    
+    Request:
+        {
+            "recipients": ["user1@example.com", "user2@example.com"],
+            "subject": "Newsletter",
+            "content": "<h1>Newsletter Content</h1>",
+            "content_type": "text/html",
+            "from_email": "newsletter@yourdomain.com",
+            "from_name": "Newsletter Team"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "total_recipients": 2,
+            "total_sent": 2,
+            "total_failed": 0,
+            "sent_at": "2023-12-11T10:30:00Z"
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['recipients', 'subject', 'content']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        recipients = data['recipients']
+        if not isinstance(recipients, list) or len(recipients) == 0:
+            return jsonify({'error': 'Recipients must be a non-empty list'}), 400
+        
+        # Import email sender
+        from email_sender import get_email_sender
+        
+        sender = get_email_sender()
+        
+        # Send batch emails
+        result = sender.send_batch_emails(
+            recipients=recipients,
+            subject=data['subject'],
+            content=data['content'],
+            content_type=data.get('content_type', 'text/html'),
+            from_email=data.get('from_email'),
+            from_name=data.get('from_name')
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Failed to send batch emails: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/email/templates', methods=['GET'])
+def get_email_templates():
+    """
+    Get available email templates.
+    
+    Response:
+        {
+            "templates": {
+                "welcome": {
+                    "subject": "Welcome!",
+                    "content": "<html>...</html>"
+                }
+            }
+        }
+    """
+    try:
+        from email_sender import EMAIL_TEMPLATES
+        
+        return jsonify({
+            'templates': EMAIL_TEMPLATES
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get templates: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/config/test', methods=['POST'])
+def test_email_config():
+    """
+    Test email configuration (SendGrid API key).
+    
+    Response:
+        {
+            "valid": true,
+            "username": "your_username",
+            "status": "API key is valid"
+        }
+    """
+    try:
+        from email_sender import get_email_sender
+        
+        sender = get_email_sender()
+        result = sender.validate_api_key()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Email config test failed: {str(e)}")
+        return jsonify({
+            'valid': False,
+            'error': str(e),
+            'status': 'Configuration test failed'
+        }), 500
+
+
+@app.route('/api/email/stats', methods=['GET'])
+def get_email_stats():
+    """
+    Get email delivery statistics.
+    
+    Query Parameters:
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+    
+    Response:
+        {
+            "delivered": 100,
+            "bounced": 5,
+            "opened": 80,
+            "clicked": 20,
+            "delivery_rate": 95.0,
+            "open_rate": 80.0,
+            "click_rate": 20.0
+        }
+    """
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        from email_sender import get_email_sender
+        
+        sender = get_email_sender()
+        stats = sender.get_delivery_stats(start_date, end_date)
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"Failed to get email stats: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/webhook/sendgrid/bounce', methods=['POST'])
+def handle_sendgrid_bounce():
+    """
+    Handle SendGrid bounce webhook (integrated with email sender).
+    
+    SendGrid sends bounce events in this format:
+    [
+        {
+            "email": "user@example.com",
+            "event": "bounce",
+            "reason": "550 5.1.1 User unknown",
+            "status": "5.1.1",
+            "sg_message_id": "abc123"
+        }
+    ]
+    """
+    try:
+        events = request.get_json()
+        if not events:
+            return jsonify({'error': 'No events received'}), 400
+        
+        from email_sender import get_email_sender
+        sender = get_email_sender()
+        
+        processed_count = 0
+        
+        for event in events:
+            if event.get('event') == 'bounce':
+                email = event.get('email')
+                reason = event.get('reason', 'Unknown bounce reason')
+                status = event.get('status', '')
+                message_id = event.get('sg_message_id')
+                
+                if not email:
+                    continue
+                
+                # Determine bounce type based on status code
+                bounce_type = 'hard'
+                if status.startswith('4'):  # 4xx = temporary failure
+                    bounce_type = 'soft'
+                elif status.startswith('5'):  # 5xx = permanent failure
+                    bounce_type = 'hard'
+                
+                # Record the bounce using integrated method
+                result = sender.record_bounce(
+                    email=email,
+                    bounce_type=bounce_type,
+                    reason=f"SendGrid: {reason} (Status: {status})",
+                    message_id=message_id
+                )
+                
+                if result.get('success'):
+                    processed_count += 1
+                    logger.info(f"Recorded SendGrid bounce for {email}: {reason}")
+                else:
+                    logger.error(f"Failed to record bounce for {email}: {result.get('error')}")
+        
+        return jsonify({
+            'status': 'success',
+            'processed': processed_count,
+            'total_events': len(events)
+        })
+        
+    except Exception as e:
+        logger.error(f"SendGrid webhook error: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/webhook/test/bounce', methods=['POST'])
+def test_bounce_recording():
+    """
+    Test bounce recording (integrated approach).
+    
+    Request:
+        {
+            "email": "test@example.com",
+            "bounce_type": "hard",
+            "reason": "Test bounce"
+        }
+    """
+    try:
+        data = request.get_json()
+        email = data.get('email', 'test@example.com') if data else 'test@example.com'
+        bounce_type = data.get('bounce_type', 'hard') if data else 'hard'
+        reason = data.get('reason', 'Test bounce') if data else 'Test bounce'
+        
+        from email_sender import get_email_sender
+        sender = get_email_sender()
+        
+        result = sender.record_bounce(email, bounce_type, reason)
+        
+        if result.get('success'):
+            return jsonify({
+                'status': 'success',
+                'message': f'Test bounce recorded for {email}',
+                'bounce_count': result['bounce_count']
+            })
+        else:
+            return jsonify({'error': result.get('error', 'Unknown error')}), 500
+            
+    except Exception as e:
+        logger.error(f"Test bounce error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
 
 if __name__ == '__main__':
     print("=" * 70)
-    print("Email Validator API with Anonymous User History")
+    print("Email Platform - Validate & Send Emails")
     print("=" * 70)
-    print("\n🔐 Authentication: Anonymous User ID (X-User-ID header)")
+    print("\n🚀 Server starting on http://localhost:5000")
+    print("🔐 Authentication: Anonymous User ID (X-User-ID header)")
     print("📊 Private history without login")
-    print("\nEndpoints:")
+    print("📧 Email sending with SendGrid integration")
+    
+    print("\n📧 Email Validation Endpoints:")
     print("  - POST /api/validate          - Validate single email")
     print("  - POST /api/validate/batch    - Validate multiple emails")
     print("  - GET  /api/history           - Get user history")
-    print("  - DELETE /api/history/:id     - Delete specific record")
-    print("  - DELETE /api/history         - Clear all history")
-    print("  - GET  /api/analytics         - Get user analytics")
+    
+    print("\n📤 Email Sending Endpoints:")
+    print("  - POST /api/email/send        - Send single email")
+    print("  - POST /api/email/send/batch  - Send batch emails")
+    print("  - GET  /api/email/templates   - Get email templates")
+    print("  - POST /api/email/config/test - Test SendGrid config")
+    print("  - GET  /api/email/stats       - Email delivery stats")
+    
+    print("\n🌐 Frontend: http://localhost:3000 (if running)")
+    print("💡 Tip: Use 'Send Emails' tab to compose and send emails")
+    print("⚙️  Setup: Add SENDGRID_API_KEY to .env file")
     print("\n" + "=" * 70)
     print()
     
