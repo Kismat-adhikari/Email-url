@@ -829,7 +829,7 @@ class SupabaseStorage:
                 'last_name': user_data['last_name'].strip(),
                 'api_key': user_data.get('api_key'),
                 'subscription_tier': user_data.get('subscription_tier', 'free'),
-                'api_calls_limit': user_data.get('api_calls_limit', 1000),
+                'api_calls_limit': user_data.get('api_calls_limit', 10),
                 'api_calls_count': 0,
                 'is_verified': user_data.get('is_verified', False),
                 'is_active': user_data.get('is_active', True),
@@ -1001,7 +1001,7 @@ class SupabaseStorage:
                 return False
             
             current_calls = user.get('api_calls_count', 0)
-            call_limit = user.get('api_calls_limit', 1000)
+            call_limit = user.get('api_calls_limit', 10)
             
             return current_calls < call_limit
             
@@ -1034,6 +1034,134 @@ class SupabaseStorage:
             
         except Exception as e:
             raise Exception(f"Failed to reset API calls: {str(e)}")
+    
+    def get_total_validations_count(self) -> int:
+        """
+        Get total number of email validations performed.
+        
+        Returns:
+            int: Total validation count
+        """
+        try:
+            response = self.supabase.table(self.table_name)\
+                .select('id', count='exact')\
+                .execute()
+            
+            return response.count or 0
+            
+        except Exception as e:
+            print(f"Warning: Could not get total validations count: {e}")
+            return 0
+    
+    def get_bounce_counts(self) -> Dict[str, Any]:
+        """
+        Get bounce statistics from the database.
+        
+        Returns:
+            Dictionary with bounce counts and statistics
+        """
+        try:
+            # Get total bounces
+            bounce_response = self.supabase.table(self.table_name)\
+                .select('bounce_count, bounce_type', count='exact')\
+                .eq('bounced', True)\
+                .execute()
+            
+            total_bounces = bounce_response.count or 0
+            
+            # Get hard bounces
+            hard_bounce_response = self.supabase.table(self.table_name)\
+                .select('id', count='exact')\
+                .eq('bounced', True)\
+                .eq('bounce_type', 'hard')\
+                .execute()
+            
+            hard_bounces = hard_bounce_response.count or 0
+            
+            # Get soft bounces
+            soft_bounces = total_bounces - hard_bounces
+            
+            # Calculate bounce rate
+            total_validations = self.get_total_validations_count()
+            bounce_rate = total_bounces / total_validations if total_validations > 0 else 0
+            
+            return {
+                'total_bounces': total_bounces,
+                'hard_bounces': hard_bounces,
+                'soft_bounces': soft_bounces,
+                'bounce_rate': round(bounce_rate, 4)
+            }
+            
+        except Exception as e:
+            print(f"Warning: Could not get bounce counts: {e}")
+            return {
+                'total_bounces': 0,
+                'hard_bounces': 0,
+                'soft_bounces': 0,
+                'bounce_rate': 0.0
+            }
+    
+    def get_recent_bounces(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get recent bounce records.
+        
+        Args:
+            limit: Maximum number of records to return
+        
+        Returns:
+            List of recent bounce records
+        """
+        try:
+            response = self.supabase.table(self.table_name)\
+                .select('email, bounce_type, bounce_reason, last_bounce_date')\
+                .eq('bounced', True)\
+                .order('last_bounce_date', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            return response.data or []
+            
+        except Exception as e:
+            print(f"Warning: Could not get recent bounces: {e}")
+            return []
+    
+    def get_bounce_reasons_stats(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get top bounce reasons with counts.
+        
+        Args:
+            limit: Maximum number of reasons to return
+        
+        Returns:
+            List of bounce reasons with counts
+        """
+        try:
+            # This would require a more complex query with grouping
+            # For now, return a simplified version
+            response = self.supabase.table(self.table_name)\
+                .select('bounce_reason')\
+                .eq('bounced', True)\
+                .not_.is_('bounce_reason', 'null')\
+                .limit(100)\
+                .execute()
+            
+            # Count reasons manually (in production, use SQL GROUP BY)
+            reason_counts = {}
+            for record in response.data or []:
+                reason = record.get('bounce_reason', 'Unknown')
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            
+            # Sort by count and return top reasons
+            sorted_reasons = sorted(reason_counts.items(), key=lambda x: x[1], reverse=True)
+            
+            return [
+                {'reason': reason, 'count': count}
+                for reason, count in sorted_reasons[:limit]
+            ]
+            
+        except Exception as e:
+            print(f"Warning: Could not get bounce reasons: {e}")
+            return []
 
 
 # Convenience function for quick access
