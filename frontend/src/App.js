@@ -143,15 +143,61 @@ function App() {
 
   // Admin mode detection
   const [adminMode, setAdminMode] = useState(() => {
-    return localStorage.getItem('adminMode') === 'true';
+    const isAdmin = localStorage.getItem('adminMode') === 'true';
+    console.log('🛡️ Initial admin mode:', isAdmin);
+    return isAdmin;
   });
   const [adminToken, setAdminToken] = useState(() => {
-    return localStorage.getItem('adminToken');
+    const token = localStorage.getItem('adminToken');
+    console.log('🔑 Initial admin token:', token ? `${token.substring(0, 20)}...` : 'null');
+    return token;
   });
   const [adminUser, setAdminUser] = useState(() => {
     const savedAdminUser = localStorage.getItem('adminUser');
-    return savedAdminUser ? JSON.parse(savedAdminUser) : null;
+    const user = savedAdminUser ? JSON.parse(savedAdminUser) : null;
+    console.log('👤 Initial admin user:', user);
+    return user;
   });
+
+  // Listen for admin mode changes (when opened from admin dashboard)
+  useEffect(() => {
+    const checkAdminMode = () => {
+      const isAdmin = localStorage.getItem('adminMode') === 'true';
+      const token = localStorage.getItem('adminToken');
+      const user = localStorage.getItem('adminUser');
+      
+      if (isAdmin !== adminMode) {
+        console.log('🛡️ Admin mode changed:', isAdmin);
+        setAdminMode(isAdmin);
+      }
+      if (token !== adminToken) {
+        console.log('🔑 Admin token changed:', token ? `${token.substring(0, 20)}...` : 'null');
+        setAdminToken(token);
+      }
+      if (user) {
+        try {
+          const parsedUser = JSON.parse(user);
+          if (JSON.stringify(parsedUser) !== JSON.stringify(adminUser)) {
+            console.log('👤 Admin user changed:', parsedUser);
+            setAdminUser(parsedUser);
+          }
+        } catch (e) {
+          console.error('Failed to parse admin user:', e);
+        }
+      } else if (adminUser) {
+        console.log('👤 Admin user cleared');
+        setAdminUser(null);
+      }
+    };
+
+    // Check immediately
+    checkAdminMode();
+    
+    // Check periodically for changes (when opened from admin dashboard)
+    const interval = setInterval(checkAdminMode, 1000);
+    
+    return () => clearInterval(interval);
+  }, [adminMode, adminToken, adminUser]);
 
   const API_URL = process.env.NODE_ENV === 'production' 
     ? ''
@@ -694,104 +740,155 @@ function App() {
       };
       
       if (adminMode) {
-        endpoint = '/api/admin/validate/batch'; // Admin unlimited endpoint
+        // Admin mode: Use regular JSON endpoint (not streaming)
+        endpoint = '/api/admin/validate/batch';
         headers['Authorization'] = `Bearer ${adminToken}`;
-      } else if (user) {
-        endpoint = '/api/validate/batch/stream'; // Regular authenticated endpoint
-        headers['Authorization'] = `Bearer ${authToken}`;
+        
+        console.log('🛡️ Admin batch validation:', {
+          adminMode,
+          adminToken: adminToken ? `${adminToken.substring(0, 20)}...` : 'null',
+          endpoint,
+          emailCount: emails.length
+        });
+        
+        const response = await fetch(`${API_URL}${endpoint}`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            emails,
+            advanced: mode === 'advanced'
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('❌ Admin batch validation failed:', errorData);
+          throw new Error(errorData.message || 'Admin batch validation failed');
+        }
+
+        const data = await response.json();
+        
+        // Simulate progress for admin (instant completion)
+        setProgress({
+          current: data.total,
+          total: data.total,
+          percentage: 100,
+          eta: 0,
+          speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : data.total
+        });
+
+        // Set final results with domain stats
+        setBatchResults({
+          results: data.results,
+          valid_count: data.valid_count,
+          invalid_count: data.invalid_count,
+          total: data.total,
+          original_count: data.original_count,
+          duplicates_removed: data.duplicates_removed,
+          processing_time: data.processing_time,
+          admin_validation: true,
+          domain_stats: data.domain_stats || null
+        });
+
       } else {
-        endpoint = '/api/validate/batch/local'; // Anonymous endpoint
-        headers['X-User-ID'] = anonUserId;
-      }
+        // Regular users: Use streaming endpoint
+        if (user) {
+          endpoint = '/api/validate/batch/stream'; // Regular authenticated endpoint
+          headers['Authorization'] = `Bearer ${authToken}`;
+        } else {
+          endpoint = '/api/validate/batch/local'; // Anonymous endpoint
+          headers['X-User-ID'] = anonUserId;
+        }
 
-      const response = await fetch(`${API_URL}${endpoint}`, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          emails,
-          advanced: mode === 'advanced',
-          remove_duplicates: removeDuplicates
-        })
-      });
+        const response = await fetch(`${API_URL}${endpoint}`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            emails,
+            advanced: mode === 'advanced',
+            remove_duplicates: removeDuplicates
+          })
+        });
 
-      if (!response.ok) {
-        throw new Error('Stream validation failed');
-      }
+        if (!response.ok) {
+          throw new Error('Stream validation failed');
+        }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6));
-            
-            if (data.type === 'start') {
-              // Duplicate info is handled by backend
-            } else if (data.type === 'result') {
-              // Calculate ETA and speed
-              const elapsed = (Date.now() - startTime) / 1000; // seconds
-              const current = data.progress.current;
-              const total = data.progress.total;
-              const speed = current / elapsed; // emails per second
-              const remaining = total - current;
-              const eta = remaining / speed; // seconds
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'start') {
+                // Duplicate info is handled by backend
+              } else if (data.type === 'result') {
+                // Calculate ETA and speed
+                const elapsed = (Date.now() - startTime) / 1000; // seconds
+                const current = data.progress.current;
+                const total = data.progress.total;
+                const speed = current / elapsed; // emails per second
+                const remaining = total - current;
+                const eta = remaining / speed; // seconds
 
-              // Update progress
-              setProgress({
-                current,
-                total,
-                percentage: data.progress.percentage,
-                eta: Math.ceil(eta),
-                speed: speed.toFixed(1)
-              });
+                // Update progress
+                setProgress({
+                  current,
+                  total,
+                  percentage: data.progress.percentage,
+                  eta: Math.ceil(eta),
+                  speed: speed.toFixed(1)
+                });
 
-              // Save to localStorage for anonymous users
-              if (!user && data.result) {
-                saveValidationToLocalStorage(data.result);
+                // Save to localStorage for anonymous users
+                if (!user && data.result) {
+                  saveValidationToLocalStorage(data.result);
+                }
+
+                // Add result to the list in real-time
+                setBatchResults(prev => ({
+                  ...prev,
+                  results: [...prev.results, data.result],
+                  valid_count: data.progress.valid,
+                  invalid_count: data.progress.invalid,
+                  total: data.progress.total
+                }));
+              } else if (data.type === 'complete') {
+                // Calculate actual processing time
+                const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
+                
+                // Final progress update
+                setProgress({
+                  current: data.total,
+                  total: data.total,
+                  percentage: 100,
+                  eta: 0,
+                  speed: (data.total / parseFloat(processingTime)).toFixed(1)
+                });
+                
+                // Final update
+                setBatchResults(prev => ({
+                  ...prev,
+                  valid_count: data.valid_count,
+                  invalid_count: data.invalid_count,
+                  total: data.total,
+                  original_count: data.original_count,
+                  duplicates_removed: data.duplicates_removed,
+                  domain_stats: data.domain_stats,
+                  processing_time: processingTime
+                }));
               }
-
-              // Add result to the list in real-time
-              setBatchResults(prev => ({
-                ...prev,
-                results: [...prev.results, data.result],
-                valid_count: data.progress.valid,
-                invalid_count: data.progress.invalid,
-                total: data.progress.total
-              }));
-            } else if (data.type === 'complete') {
-              // Calculate actual processing time
-              const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
-              
-              // Final progress update
-              setProgress({
-                current: data.total,
-                total: data.total,
-                percentage: 100,
-                eta: 0,
-                speed: (data.total / parseFloat(processingTime)).toFixed(1)
-              });
-              
-              // Final update
-              setBatchResults(prev => ({
-                ...prev,
-                valid_count: data.valid_count,
-                invalid_count: data.invalid_count,
-                total: data.total,
-                original_count: data.original_count,
-                duplicates_removed: data.duplicates_removed,
-                domain_stats: data.domain_stats,
-                processing_time: processingTime
-              }));
             }
           }
         }
@@ -977,10 +1074,10 @@ function App() {
 
           {/* Center Section - User Info */}
           <div className="navbar-center">
-            {adminMode && adminUser ? (
+            {adminMode ? (
               <div className="user-greeting admin-mode">
                 <span className="wave-icon">🛡️</span>
-                <span className="greeting-text">Admin Mode: {adminUser.first_name}!</span>
+                <span className="greeting-text">Admin Mode: {adminUser?.first_name || 'Admin'}!</span>
                 <span className="admin-badge">UNLIMITED ACCESS</span>
               </div>
             ) : user ? (
@@ -1033,7 +1130,30 @@ function App() {
             )}
 
             {/* Authentication Buttons */}
-            {user ? (
+            {(() => {
+              console.log('🔍 Auth state:', { adminMode, adminUser: !!adminUser, user: !!user });
+              return null;
+            })()}
+            {adminMode ? (
+              <div className="auth-buttons">
+                <button className="navbar-btn admin-dashboard-btn" onClick={() => window.open('/admin/dashboard', '_blank')}>
+                  <FiShield /> Admin Dashboard
+                </button>
+                <button className="navbar-btn logout-btn" onClick={() => {
+                  console.log('🚪 Admin logout clicked');
+                  // Clear admin mode and redirect to admin login
+                  localStorage.removeItem('adminMode');
+                  localStorage.removeItem('adminToken');
+                  localStorage.removeItem('adminUser');
+                  // Also clear regular user data if any
+                  localStorage.removeItem('authToken');
+                  localStorage.removeItem('user');
+                  window.location.href = '/admin/login';
+                }}>
+                  <FiLogOut /> Admin Logout
+                </button>
+              </div>
+            ) : user ? (
               <div className="auth-buttons">
                 <button className="navbar-btn profile-btn" onClick={() => navigate('/profile')}>
                   <FiUser /> Profile
@@ -1824,37 +1944,37 @@ function App() {
                 )}
 
                 {result.bounce_check && result.bounce_check.has_bounced && (
-                  <div className={`bounce-warning-section ${result.bounce_check.risk_level}`}>
+                  <div className={`bounce-warning-section ${result.bounce_check?.risk_level || 'medium'}`}>
                     <h3>⚠️ Bounce History Detected</h3>
                     <div className="bounce-warning-content">
                       <div className="bounce-stats">
                         <div className="bounce-stat">
-                          <strong>{result.bounce_check.total_bounces}</strong>
+                          <strong>{result.bounce_check?.total_bounces || 0}</strong>
                           <span>Total Bounces</span>
                         </div>
                         <div className="bounce-stat">
-                          <strong>{result.bounce_check.hard_bounces}</strong>
+                          <strong>{result.bounce_check?.hard_bounces || 0}</strong>
                           <span>Hard Bounces</span>
                         </div>
                         <div className="bounce-stat">
-                          <strong>{result.bounce_check.soft_bounces}</strong>
+                          <strong>{result.bounce_check?.soft_bounces || 0}</strong>
                           <span>Soft Bounces</span>
                         </div>
                       </div>
                       
-                      {result.bounce_check.warning && (
+                      {result.bounce_check?.warning && (
                         <div className="bounce-warning">
                           {result.bounce_check.warning}
                         </div>
                       )}
                       
-                      {result.bounce_info.last_bounce && (
+                      {result.bounce_info?.last_bounce && (
                         <div style={{
                           marginTop: '12px',
                           fontSize: '0.9rem',
                           color: '#6b7280'
                         }}>
-                          Last bounce: {new Date(result.bounce_info.last_bounce).toLocaleDateString()}
+                          Last bounce: {new Date(result.bounce_info?.last_bounce).toLocaleDateString()}
                         </div>
                       )}
                       
@@ -1929,14 +2049,14 @@ function App() {
                   </div>
                   {result.bounce_info && (
                     <div className={`pro-check-item ${
-                      result.bounce_info.has_bounced ? 'warn' : 'pass'
+                      result.bounce_info?.has_bounced ? 'warn' : 'pass'
                     }`}>
                       <span className="pro-check-icon">
-                        {result.bounce_info.has_bounced ? '⚠' : '✓'}
+                        {result.bounce_info?.has_bounced ? '⚠' : '✓'}
                       </span>
                       <span>
-                        {result.bounce_check && result.bounce_check.has_bounced 
-                          ? `${result.bounce_check.total_bounces} Bounce${result.bounce_check.total_bounces > 1 ? 's' : ''}`
+                        {result.bounce_check?.has_bounced 
+                          ? `${result.bounce_check.total_bounces || 0} Bounce${(result.bounce_check.total_bounces || 0) > 1 ? 's' : ''}`
                           : 'No Bounces'}
                       </span>
                     </div>
@@ -2275,17 +2395,17 @@ function App() {
                         </div>
                       )}
 
-                      {item.bounce_check && item.bounce_check.bounce_history.has_bounced && (
-                        <div className={`bounce-warning-section ${item.bounce_check.risk_level}`}>
+                      {item.bounce_check?.bounce_history?.has_bounced && (
+                        <div className={`bounce-warning-section ${item.bounce_check?.risk_level || 'medium'}`}>
                           <h4>Bounce History</h4>
                           <div className="bounce-warning-content">
                             <div className="bounce-stats">
                               <div className="bounce-stat">
-                                <strong>{item.bounce_check.bounce_history.total_bounces}</strong>
+                                <strong>{item.bounce_check?.bounce_history?.total_bounces || 0}</strong>
                                 <span>Total Bounces</span>
                               </div>
                               <div className="bounce-stat">
-                                <strong>{item.bounce_check.bounce_history.hard_bounces}</strong>
+                                <strong>{item.bounce_check?.bounce_history?.hard_bounces || 0}</strong>
                                 <span>Hard Bounces</span>
                               </div>
                             </div>

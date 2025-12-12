@@ -41,6 +41,7 @@ const AdminLogin = () => {
         // Store admin token and data
         localStorage.setItem('adminToken', data.token);
         localStorage.setItem('adminUser', JSON.stringify(data.admin));
+        localStorage.setItem('adminMode', 'true'); // Set admin mode flag
         
         // Redirect to admin dashboard
         navigate('/admin/dashboard');

@@ -76,7 +76,9 @@ def is_admin_request():
         
         # Verify admin token
         payload = jwt.decode(token, ADMIN_JWT_SECRET, algorithms=['HS256'])
-        return payload.get('role') == 'admin'
+        role = payload.get('role')
+        # Accept both 'admin' and 'super_admin' roles
+        return role in ['admin', 'super_admin']
     except:
         return False
 
@@ -90,11 +92,13 @@ def get_admin_from_request():
         token = auth_header.split(' ')[1]
         payload = jwt.decode(token, ADMIN_JWT_SECRET, algorithms=['HS256'])
         
-        if payload.get('role') == 'admin':
+        role = payload.get('role')
+        # Accept both 'admin' and 'super_admin' roles
+        if role in ['admin', 'super_admin']:
             return {
                 'id': payload.get('admin_id'),
-                'email': payload.get('email'),
-                'role': 'admin'
+                'email': payload.get('email', 'admin@emailvalidator.com'),
+                'role': role
             }
         return None
     except:
@@ -497,12 +501,32 @@ def admin_validate_batch():
         
         emails = data.get('emails', [])
         advanced = data.get('advanced', True)
+        remove_duplicates = data.get('remove_duplicates', True)
         
         if not emails:
             return jsonify({
                 'error': 'Empty email list',
                 'message': 'Please provide at least one email address'
             }), 400
+        
+        # Track original count for duplicate removal
+        original_count = len(emails)
+        
+        # Remove duplicates if requested (case-insensitive)
+        if remove_duplicates:
+            emails_lower = [email.lower().strip() for email in emails]
+            unique_emails = []
+            seen = set()
+            for email in emails:
+                email_lower = email.lower().strip()
+                if email_lower not in seen:
+                    seen.add(email_lower)
+                    unique_emails.append(email)
+            emails = unique_emails
+            duplicates_removed = original_count - len(emails)
+            logger.info(f"Admin batch: Removed {duplicates_removed} duplicates")
+        else:
+            duplicates_removed = 0
         
         logger.info(f"Admin batch validation: {len(emails)} emails (advanced: {advanced}) by {admin['email']}")
         
@@ -513,10 +537,67 @@ def admin_validate_batch():
         
         for email in emails:
             try:
-                if advanced:
-                    result = validate_email_tiered(email, tier='premium')
+                # Clean email
+                email = email.strip()
+                
+                # Validate email format
+                if not validate_email_format(email):
+                    result = {
+                        'email': email,
+                        'valid': False,
+                        'reason': 'Invalid email format',
+                        'checks': {'syntax': False}
+                    }
                 else:
-                    result = validate_email_advanced(email)
+                    # Perform validation
+                    if advanced:
+                        try:
+                            result = validate_email_advanced(email)
+                        except Exception as e:
+                            logger.error(f"Advanced validation error for {email}: {str(e)}")
+                            result = {
+                                'email': email,
+                                'valid': False,
+                                'reason': f'Validation error: {str(e)}',
+                                'checks': {'syntax': True}
+                            }
+                        
+                        # Add enrichment
+                        enrichment_data = enricher.enrich_email(email)
+                        if enrichment_data:
+                            result['enrichment'] = enrichment_data
+                        
+                        # Add deliverability score
+                        deliverability = calculate_deliverability_score(email, result)
+                        result['deliverability'] = deliverability
+                        
+                        # Add pattern analysis
+                        pattern = analyze_email_pattern(email)
+                        if pattern:
+                            result['pattern_analysis'] = pattern
+                        
+                        # Add risk check
+                        if '@' in email:
+                            domain = email.split('@')[1]
+                            risk = comprehensive_risk_check(email, domain)
+                            result['risk_check'] = risk
+                        
+                        # Add bounce check (integrated)
+                        try:
+                            from email_sender import get_email_sender
+                            sender = get_email_sender()
+                            bounce_check = sender.check_bounce_history(email)
+                            result['bounce_check'] = bounce_check
+                        except Exception as e:
+                            logger.error(f"Bounce check failed: {e}")
+                            result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
+                        
+                        # Add status
+                        status = determine_email_status(result)
+                        result['status'] = status
+                    else:
+                        # Basic validation
+                        result = {'email': email, 'valid': validate_email_format(email)}
                 
                 results.append(result)
                 
@@ -537,12 +618,18 @@ def admin_validate_batch():
         
         processing_time = round(time.time() - start_time, 3)
         
+        # Calculate domain statistics
+        domain_stats = calculate_domain_stats(results)
+        
         response = {
             'results': results,
             'total': len(emails),
+            'original_count': original_count,
+            'duplicates_removed': duplicates_removed,
             'valid_count': valid_count,
             'invalid_count': invalid_count,
             'processing_time': processing_time,
+            'domain_stats': domain_stats,
             'admin_validation': True,
             'admin_user': admin['email'],
             'unlimited_access': True
