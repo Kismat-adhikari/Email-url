@@ -8,12 +8,14 @@ import {
   FiMail, FiRefreshCw, 
   FiTrash2, FiDownload, FiCopy, FiCheckCircle, FiXCircle,
   FiZap, FiCpu, FiInbox, FiList, FiClock, FiAlertTriangle,
-  FiAlertCircle, FiFileText,
-  FiShield, FiTrendingUp, FiActivity, FiAward, FiMoon, FiSun
+  FiAlertCircle, FiFileText, FiSend,
+  FiShield, FiTrendingUp, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
 } from 'react-icons/fi';
+import EmailComposer from './EmailComposer';
+
 
 // ============================================================================
-// ANONYMOUS USER ID SYSTEM
+// ANONYMOUS USER ID SYSTEM & LOCAL STORAGE HISTORY
 // ============================================================================
 
 function generateUUID() {
@@ -36,6 +38,77 @@ function getAnonUserId() {
   return anonUserId;
 }
 
+// Local storage history management for anonymous users
+function saveValidationToLocalStorage(validationResult) {
+  try {
+    const history = JSON.parse(localStorage.getItem('validation_history') || '[]');
+    
+    // Add new validation with timestamp
+    const record = {
+      id: Date.now(), // Simple ID for local storage
+      email: validationResult.email,
+      valid: validationResult.valid,
+      confidence_score: validationResult.confidence_score || 0,
+      checks: validationResult.checks || {},
+      validated_at: new Date().toISOString(),
+      // Store other relevant data
+      deliverability: validationResult.deliverability,
+      risk_check: validationResult.risk_check,
+      bounce_check: validationResult.bounce_check,
+      status: validationResult.status,
+      reason: validationResult.reason,
+      suggestion: validationResult.suggestion
+    };
+    
+    // Add to beginning of array (newest first)
+    history.unshift(record);
+    
+    // Keep only last 1000 records to prevent localStorage bloat
+    if (history.length > 1000) {
+      history.splice(1000);
+    }
+    
+    localStorage.setItem('validation_history', JSON.stringify(history));
+    console.log('💾 Saved validation to localStorage:', validationResult.email);
+    
+    return record;
+  } catch (error) {
+    console.error('Failed to save to localStorage:', error);
+    return null;
+  }
+}
+
+function getLocalStorageHistory() {
+  try {
+    return JSON.parse(localStorage.getItem('validation_history') || '[]');
+  } catch (error) {
+    console.error('Failed to load from localStorage:', error);
+    return [];
+  }
+}
+
+function deleteLocalStorageRecord(recordId) {
+  try {
+    const history = getLocalStorageHistory();
+    const filtered = history.filter(record => record.id !== recordId);
+    localStorage.setItem('validation_history', JSON.stringify(filtered));
+    return true;
+  } catch (error) {
+    console.error('Failed to delete from localStorage:', error);
+    return false;
+  }
+}
+
+function clearLocalStorageHistory() {
+  try {
+    localStorage.removeItem('validation_history');
+    return true;
+  } catch (error) {
+    console.error('Failed to clear localStorage:', error);
+    return false;
+  }
+}
+
 function App() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -45,6 +118,8 @@ function App() {
   const [error, setError] = useState(null);
   const [batchMode, setBatchMode] = useState(false);
   const [historyMode, setHistoryMode] = useState(false);
+  const [emailMode, setEmailMode] = useState(false);
+
   const [batchEmails, setBatchEmails] = useState('');
   const [batchResults, setBatchResults] = useState(null);
   const [uploadMode, setUploadMode] = useState('text');
@@ -129,15 +204,11 @@ function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    // Check for signup success message
+    // Clean up signup success URL parameter (no alert needed)
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('signup') === 'success' && user) {
-      // Show welcome message
-      setTimeout(() => {
-        alert(`🎉 Welcome to EmailValidator, ${user.firstName}! Your account has been created successfully.`);
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }, 1000);
+    if (urlParams.get('signup') === 'success') {
+      // Clean up URL without showing alert
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
     
     // Reload history when user authentication changes
@@ -158,7 +229,7 @@ function App() {
           'Email', 'Valid', 'Confidence Score', 'Deliverability Score', 'Deliverability Grade',
           'Status', 'Risk Level', 'Domain', 'Provider Type', 
           'Is Disposable', 'Is Role Based', 'Has MX Records', 'DNS Valid',
-          'Bounce Risk', 'Reason', 'Suggestion'
+          'Bounce Count', 'Reason', 'Suggestion'
         ]
       : ['Email', 'Valid', 'Domain', 'Reason'];
 
@@ -180,7 +251,7 @@ function App() {
           r.checks?.is_role_based ? 'Yes' : 'No',
           r.checks?.mx_records ? 'Yes' : 'No',
           r.checks?.dns_valid ? 'Yes' : 'No',
-          r.bounce_check?.risk_level || 'N/A',
+          r.bounce_info?.bounce_count || 0,
           r.reason || '',
           r.suggestion || ''
         ];
@@ -323,12 +394,20 @@ function App() {
     setResult(null);
 
     try {
-      const response = await api.post('/api/validate', { 
+      // For anonymous users, don't send to backend database
+      const endpoint = user ? '/api/validate' : '/api/validate/local';
+      
+      const response = await api.post(endpoint, { 
         email,
         advanced: mode === 'advanced'
       });
       
       setResult(response.data);
+      
+      // Save to localStorage for anonymous users
+      if (!user && response.data) {
+        saveValidationToLocalStorage(response.data);
+      }
       
       // Refresh history if on history tab
       if (historyMode) {
@@ -453,12 +532,22 @@ function App() {
     setProgress({ current: 0, total: emails.length, percentage: 0, eta: 0, speed: 0 });
 
     try {
-      const response = await fetch(`${API_URL}/api/validate/batch/stream`, {
+      // Use different endpoint based on authentication
+      const endpoint = user ? '/api/validate/batch/stream' : '/api/validate/batch/local';
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      
+      // Add appropriate headers based on user type
+      if (user) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      } else {
+        headers['X-User-ID'] = anonUserId;
+      }
+
+      const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': anonUserId
-        },
+        headers: headers,
         body: JSON.stringify({
           emails,
           advanced: mode === 'advanced',
@@ -506,6 +595,11 @@ function App() {
                 eta: Math.ceil(eta),
                 speed: speed.toFixed(1)
               });
+
+              // Save to localStorage for anonymous users
+              if (!user && data.result) {
+                saveValidationToLocalStorage(data.result);
+              }
 
               // Add result to the list in real-time
               setBatchResults(prev => ({
@@ -559,22 +653,34 @@ function App() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const response = await api.get('/api/history?limit=100');
-      const historyData = response.data.history || [];
-      const userType = response.data.user_type || 'anonymous';
-      
-      setHistory(historyData);
-      setFilteredHistory(historyData);
-      
-      // Log for debugging
-      console.log(`📊 Loaded ${historyData.length} history records for ${userType} user`);
-      if (user && userType === 'authenticated') {
-        console.log(`👤 Showing history for: ${user.firstName} ${user.lastName}`);
+      if (user) {
+        // Authenticated user - load from database
+        const response = await api.get('/api/history?limit=100');
+        const historyData = response.data.history || [];
+        
+        setHistory(historyData);
+        setFilteredHistory(historyData);
+        
+        console.log(`📊 Loaded ${historyData.length} database records for authenticated user: ${user.firstName} ${user.lastName}`);
+      } else {
+        // Anonymous user - load from localStorage
+        const localHistory = getLocalStorageHistory();
+        
+        setHistory(localHistory);
+        setFilteredHistory(localHistory);
+        
+        console.log(`📊 Loaded ${localHistory.length} localStorage records for anonymous user`);
       }
       
     } catch (err) {
       console.error('History loading error:', err);
-      setError('Failed to load history');
+      if (user) {
+        setError('Failed to load history from server');
+      } else {
+        // Fallback to empty history for localStorage errors
+        setHistory([]);
+        setFilteredHistory([]);
+      }
     } finally {
       setHistoryLoading(false);
     }
@@ -609,9 +715,18 @@ function App() {
     if (!window.confirm('Delete this record?')) return;
     
     try {
-      await api.delete(`/api/history/${id}`);
-      // Auto-refresh after delete
-      await loadHistory();
+      if (user) {
+        // Authenticated user - delete from database
+        await api.delete(`/api/history/${id}`);
+        await loadHistory();
+      } else {
+        // Anonymous user - delete from localStorage
+        if (deleteLocalStorageRecord(id)) {
+          await loadHistory();
+        } else {
+          alert('Failed to delete record');
+        }
+      }
     } catch (err) {
       alert('Failed to delete record');
     }
@@ -621,11 +736,22 @@ function App() {
     if (!window.confirm('Clear ALL history? This cannot be undone!')) return;
     
     try {
-      await api.delete('/api/history');
-      // Immediately clear UI
-      setHistory([]);
-      setFilteredHistory([]);
-      alert('History cleared');
+      if (user) {
+        // Authenticated user - clear database
+        await api.delete('/api/history');
+        setHistory([]);
+        setFilteredHistory([]);
+        alert('History cleared');
+      } else {
+        // Anonymous user - clear localStorage
+        if (clearLocalStorageHistory()) {
+          setHistory([]);
+          setFilteredHistory([]);
+          alert('History cleared');
+        } else {
+          alert('Failed to clear history');
+        }
+      }
     } catch (err) {
       alert('Failed to clear history');
     }
@@ -727,9 +853,9 @@ function App() {
           {/* Center Section - User Info */}
           <div className="navbar-center">
             {user && (
-              <div className="user-welcome">
-                <span className="welcome-text">👋 Welcome, {user.firstName}!</span>
-                <span className="user-tier-badge">{user.subscriptionTier.toUpperCase()}</span>
+              <div className="user-greeting">
+                <span className="wave-icon">👋</span>
+                <span className="greeting-text">Welcome, {user.firstName}!</span>
               </div>
             )}
           </div>
@@ -752,9 +878,14 @@ function App() {
 
             {/* Authentication Buttons */}
             {user ? (
-              <button className="navbar-btn logout-btn" onClick={handleLogout}>
-                Logout
-              </button>
+              <div className="auth-buttons">
+                <button className="navbar-btn profile-btn" onClick={() => navigate('/profile')}>
+                  <FiUser /> Profile
+                </button>
+                <button className="navbar-btn logout-btn" onClick={handleLogout}>
+                  <FiLogOut /> Logout
+                </button>
+              </div>
             ) : (
               <div className="auth-buttons">
                 <button className="navbar-btn login-btn" onClick={() => navigate('/login')}>
@@ -785,10 +916,11 @@ function App() {
           {/* Tabs */}
           <div className="pro-tabs">
             <button
-              className={`pro-tab ${!batchMode && !historyMode ? 'active' : ''}`}
+              className={`pro-tab ${!batchMode && !historyMode && !emailMode ? 'active' : ''}`}
               onClick={() => {
                 setBatchMode(false);
                 setHistoryMode(false);
+                setEmailMode(false);
                 setResult(null);
                 setBatchResults(null);
                 setError(null);
@@ -802,6 +934,7 @@ function App() {
               onClick={() => {
                 setBatchMode(true);
                 setHistoryMode(false);
+                setEmailMode(false);
                 setResult(null);
                 setBatchResults(null);
                 setError(null);
@@ -811,10 +944,25 @@ function App() {
               Batch Validation
             </button>
             <button
+              className={`pro-tab ${emailMode ? 'active' : ''}`}
+              onClick={() => {
+                setEmailMode(true);
+                setBatchMode(false);
+                setHistoryMode(false);
+                setResult(null);
+                setBatchResults(null);
+                setError(null);
+              }}
+            >
+              <span className="pro-tab-icon"><FiSend /></span>
+              Send Emails
+            </button>
+            <button
               className={`pro-tab ${historyMode ? 'active' : ''}`}
               onClick={() => {
                 setHistoryMode(true);
                 setBatchMode(false);
+                setEmailMode(false);
                 setResult(null);
                 setBatchResults(null);
                 setError(null);
@@ -824,6 +972,7 @@ function App() {
               <span className="pro-tab-icon"><FiClock /></span>
               History
             </button>
+
           </div>
 
           {/* Content */}
@@ -884,7 +1033,9 @@ function App() {
 
 
 
-        {historyMode ? (
+        {emailMode ? (
+          <EmailComposer />
+        ) : historyMode ? (
           <div className="history-section">
             {/* User-specific history header */}
             <div className="history-header">
@@ -900,9 +1051,13 @@ function App() {
                 <span className="history-count">
                   {filteredHistory.length} record{filteredHistory.length !== 1 ? 's' : ''}
                 </span>
-                {user && (
+                {user ? (
                   <span className="user-tier-indicator">
-                    {user.subscriptionTier.toUpperCase()} Account
+                    {user.subscriptionTier.toUpperCase()} Account • Database Storage
+                  </span>
+                ) : (
+                  <span className="storage-indicator">
+                    📱 Browser Storage Only
                   </span>
                 )}
               </div>
@@ -1319,29 +1474,52 @@ function App() {
                   </div>
                 )}
 
-                {result.bounce_check && result.bounce_check.bounce_history.has_bounced && (
+                {result.bounce_check && result.bounce_check.has_bounced && (
                   <div className={`bounce-warning-section ${result.bounce_check.risk_level}`}>
-                    <h3>Bounce History</h3>
+                    <h3>⚠️ Bounce History Detected</h3>
                     <div className="bounce-warning-content">
                       <div className="bounce-stats">
                         <div className="bounce-stat">
-                          <strong>{result.bounce_check.bounce_history.total_bounces}</strong>
+                          <strong>{result.bounce_check.total_bounces}</strong>
                           <span>Total Bounces</span>
                         </div>
                         <div className="bounce-stat">
-                          <strong>{result.bounce_check.bounce_history.hard_bounces}</strong>
+                          <strong>{result.bounce_check.hard_bounces}</strong>
                           <span>Hard Bounces</span>
                         </div>
                         <div className="bounce-stat">
-                          <strong>{result.bounce_check.bounce_history.soft_bounces}</strong>
+                          <strong>{result.bounce_check.soft_bounces}</strong>
                           <span>Soft Bounces</span>
                         </div>
                       </div>
+                      
                       {result.bounce_check.warning && (
                         <div className="bounce-warning">
                           {result.bounce_check.warning}
                         </div>
                       )}
+                      
+                      {result.bounce_info.last_bounce && (
+                        <div style={{
+                          marginTop: '12px',
+                          fontSize: '0.9rem',
+                          color: '#6b7280'
+                        }}>
+                          Last bounce: {new Date(result.bounce_info.last_bounce).toLocaleDateString()}
+                        </div>
+                      )}
+                      
+                      <div style={{
+                        marginTop: '16px',
+                        padding: '12px 16px',
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid #ef4444',
+                        borderRadius: '8px',
+                        color: '#991b1b',
+                        fontWeight: '600'
+                      }}>
+                        ⚠️ This email has failed delivery before. Use with caution.
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1400,6 +1578,20 @@ function App() {
                     <span className="pro-check-icon">{!result.checks.is_role_based ? '✓' : '⚠'}</span>
                     <span>{result.checks.is_role_based ? 'Role-Based Email' : 'Personal Email'}</span>
                   </div>
+                  {result.bounce_info && (
+                    <div className={`pro-check-item ${
+                      result.bounce_info.has_bounced ? 'warn' : 'pass'
+                    }`}>
+                      <span className="pro-check-icon">
+                        {result.bounce_info.has_bounced ? '⚠' : '✓'}
+                      </span>
+                      <span>
+                        {result.bounce_check && result.bounce_check.has_bounced 
+                          ? `${result.bounce_check.total_bounces} Bounce${result.bounce_check.total_bounces > 1 ? 's' : ''}`
+                          : 'No Bounces'}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Warnings */}

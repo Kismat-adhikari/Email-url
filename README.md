@@ -1,120 +1,221 @@
-# Email Validator
+# 📧 Email Validator - Full Stack Application
 
-A robust, production-ready Python backend script for validating email addresses using intermediate-level validation rules.
+A production-ready email validation platform with React frontend and Flask backend, featuring anonymous user history, risk scoring, and email enrichment.
 
-## Features
+## 🌟 Features
 
-- **Intermediate-level validation** with comprehensive rules
-- **Command-line interface** for easy batch processing
-- **Comprehensive error handling** with clear, actionable messages
-- **High performance** - processes thousands of emails per second
-- **Clean architecture** - modular, maintainable, and testable
-- **Production-ready** - thoroughly tested and documented
+### Validation
+- ✅ **RFC 5321 Syntax Validation** - Comprehensive email format checking
+- ✅ **DNS/MX Record Verification** - Check if domain exists and accepts mail
+- ✅ **SMTP Mailbox Verification** - Verify actual mailbox existence
+- ✅ **Disposable Email Detection** - Identify temporary email services
+- ✅ **Role-based Email Detection** - Flag generic addresses (info@, admin@)
+- ✅ **Typo Suggestions** - Smart corrections for common domain typos
+- ✅ **Catch-all Domain Detection** - Identify domains that accept all emails
 
-## Installation
+### Intelligence & Risk Management
+- 🎯 **Risk Scoring (0-100)** - Assess email deliverability risk
+- 📊 **Email Enrichment** - Domain classification, geolocation, engagement scoring
+- 📈 **Confidence Scoring** - Multi-factor validation confidence rating
+- 🚫 **Advanced Bounce Tracking** - Real-time bounce monitoring and history
+- ⚠️ **Bounce Risk Assessment** - Automatic risk categorization (low/medium/high/critical)
+- 📡 **Webhook Integration** - SendGrid, Mailgun, and custom ESP support
+- 🔄 **Automated Bounce Recording** - Seamless integration with email service providers
 
-No external dependencies required! Just Python 3.6+
+### User Experience
+- 🔐 **Anonymous User History** - Private history without login (localStorage UUID)
+- 📱 **Modern React Dashboard** - Clean, responsive UI with dark mode
+- 📦 **Batch Processing** - Validate multiple emails at once
+- 📁 **File Upload Support** - Upload .txt files for bulk validation
+- 💾 **Supabase Integration** - Persistent storage with analytics
+- 🎛️ **Bounce Management Dashboard** - Monitor and manage bounce activity
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
 
 ```bash
-git clone https://github.com/Kismat-adhikari/Email-url.git
-cd Email-url
+# Backend
+pip install -r requirements.txt
+
+# Frontend
+cd frontend
+npm install
+cd ..
 ```
 
-## Usage
+### 2. Configure Supabase
+
+Create a `.env` file:
 
 ```bash
-python emailvali.py <filepath> [options]
+SUPABASE_URL=your_project_url
+SUPABASE_KEY=your_anon_key
+SUPABASE_TABLE_NAME=email_validations
 ```
 
-### Options
+### 3. Setup Database
 
-- `--quiet` or `-q` - Only show summary statistics (suppress individual results)
-- `--version` or `-v` - Show version number
-- `--help` or `-h` - Show help message
+Run the SQL schema in your Supabase project:
 
-### Examples
+```sql
+-- See supabase_schema.sql for complete schema
+-- Then run supabase_migration_anon_id.sql for anonymous user support
+```
 
+### 4. Start the Application
+
+**Option A: Complete System (Recommended)**
 ```bash
-# Basic usage
-python emailvali.py test_emails.txt
-
-# Quiet mode (only summary)
-python emailvali.py test_emails.txt --quiet
-
-# Show version
-python emailvali.py --version
-
-# Show help
-python emailvali.py --help
+# Starts main API + bounce service + frontend
+start_complete_system.bat
 ```
 
-### Output
+**Option B: Individual Services**
+```bash
+# Terminal 1 - Main API
+python app_anon_history.py
 
-```
-VALID: user@example.com
-VALID: john.doe@company.co.uk
-INVALID: user@example
-INVALID: .user@example.com
+# Terminal 2 - Frontend (if developing)
+cd frontend && npm start
 
-==================================================
-Total processed: 67
-Total valid: 29
-Total invalid: 38
-==================================================
+# Terminal 3 - Frontend
+cd frontend
+npm start
 ```
 
-## Validation Rules
+**Option C: Legacy (Main API only)**
+```bash
+START_ANON_HISTORY.bat
+```
 
-The validator implements intermediate-level email validation rules:
+### 5. Open Your Browser
 
-- ✅ Exactly one `@` symbol
-- ✅ Non-empty local part and domain part
-- ✅ No leading or trailing dots in local part
-- ✅ No consecutive dots anywhere
-- ✅ Domain must contain at least one dot
-- ✅ Domain labels cannot start or end with hyphens
-- ✅ Domain labels max 63 characters each
-- ✅ TLD must be at least 2 characters
-- ✅ Local part max 64 characters
-- ✅ Total domain max 253 characters
-- ✅ Total email max 254 
-- ✅ No spaces anywhere
-- ✅ Standard allowed characters only
+- **Frontend**: http://localhost:3000
+- **Main API**: http://localhost:5000  
+- **Bounce Service**: http://localhost:5001
 
-### Allowed Characters
+## 🎯 API Endpoints
 
-**Local part (before @):** `a-z A-Z 0-9 . _ + -`
+### Email Validation
+```bash
+# Single email validation
+POST /api/validate
+Body: { "email": "test@example.com" }
 
-**Domain part (after @):** `a-z A-Z 0-9 - .`
+# Advanced validation with all checks
+POST /api/validate/advanced  
+Body: { "email": "test@example.com" }
 
-## Test Files
+# Batch validation
+POST /api/validate/batch
+Body: { "emails": ["email1@test.com", "email2@test.com"] }
 
-The repository includes comprehensive test suites:
+# Get validation history
+GET /api/history
+Headers: X-User-ID: <anonymous_user_id>
+```
 
-- `test_emails.txt` - 67 basic test cases
-- `stress_test_emails.txt` - 71 edge cases and boundary tests
-- `bulk_test_emails.txt` - 571 realistic email addresses
-- `test_cases_breakdown.txt` - Detailed explanation of each test
-- `stress_test_breakdown.txt` - Edge case documentation
+### Bounce Management
+```bash
+# Get bounce statistics
+GET /api/bounce/stats
 
-## Documentation
+# Record bounce manually
+POST /api/bounce/record
+Body: { "email": "user@example.com", "bounce_type": "hard", "reason": "Domain not found" }
 
-- `system_audit_report.txt` - Complete architecture and code quality audit
-- `performance_analysis.txt` - Performance benchmarks and optimization analysis
-- `validation_stress_review.txt` - Stress testing scenarios and behavior analysis
-- `false_positives_negatives.txt` - Known limitations and trade-offs
+# Get bounce history for email
+GET /api/bounce/history/<email>
+```
 
-## Performance
+### Bounce Webhooks (Port 5001)
+```bash
+# SendGrid bounce webhook
+POST /webhook/sendgrid/bounce
 
-- **10,000 emails:** ~0.5 seconds
-- **100,000 emails:** ~5 seconds
-- **1,000,000 emails:** ~50 seconds
+# Mailgun bounce webhook  
+POST /webhook/mailgun/bounce
 
-Time complexity: O(N) - Linear and optimal
+# Generic bounce webhook
+POST /webhook/generic/bounce
+Body: { "email": "user@example.com", "bounce_type": "hard", "reason": "550 User unknown" }
 
-## Architecture
+# Test bounce webhook
+POST /webhook/test
+Body: { "email": "test@example.com", "bounce_type": "hard", "reason": "Test bounce" }
 
-Clean three-tier architecture:
+# Webhook service stats
+GET /webhook/stats
+```
+
+## 📁 Project Structure
+
+```
+email-validator/
+├── app_anon_history.py          # Main Flask API with anonymous history
+├── emailvalidator_unified.py    # Core validation engine
+├── email_validator_smtp.py      # SMTP verification
+├── email_sender.py              # Email sending with integrated bounce tracking (NEW)
+├── risk_scoring.py              # Risk assessment engine
+├── email_enrichment.py          # Domain enrichment
+├── supabase_storage.py          # Database operations
+├── start_complete_system.bat    # Complete system startup (NEW)
+├── start_bounce_service.bat     # Bounce service startup (NEW)
+├── BOUNCE_TRACKING_GUIDE.md     # Bounce tracking documentation (NEW)
+├── .env                         # Configuration (create this)
+├── requirements.txt             # Python dependencies
+├── supabase_schema.sql          # Database schema
+├── supabase_migration_anon_id.sql  # Anonymous user migration
+├── README.md                    # This file
+└── frontend/                    # React application
+    ├── src/
+    │   ├── App.js              # Main React component
+    │   ├── BounceManager.js    # Bounce management dashboard (NEW)
+    │   ├── BounceManager.css   # Bounce dashboard styling (NEW)
+    │   └── App.css             # Styling
+    ├── public/
+    └── package.json
+```
+
+## 🚫 Bounce Tracking System
+
+### Quick Start
+```bash
+# Test integrated bounce tracking
+curl -X POST http://localhost:5000/webhook/test/bounce \
+     -H "Content-Type: application/json" \
+     -d '{"email": "test@example.com", "bounce_type": "hard", "reason": "Test bounce"}'
+python manage_bounces.py record test@invalid.com --type hard --reason "Domain not found"
+
+# Check bounce history
+python manage_bounces.py history test@invalid.com
+
+# View bounce statistics
+python manage_bounces.py stats
+```
+
+### Webhook Integration
+Configure your email service provider to send bounce notifications:
+
+**SendGrid**: `POST http://yourdomain.com/webhook/sendgrid/bounce`
+**Mailgun**: `POST http://yourdomain.com/webhook/mailgun/bounce`
+**Custom ESP**: `POST http://yourdomain.com/webhook/generic/bounce`
+
+### Management Dashboard
+Access the bounce management dashboard at http://localhost:3000 → "Bounce Manager" tab
+
+## 🎯 API Endpoints
+
+### Validation
+```bash
+# Single email validation
+POST /api/validate
+Body: { "email": "test@example.com" }
+
+# Advanced validation
+POST /api/validate/advanced
+Body: { "email": "test@example.com
 
 1. **Input Handler** - File loading with comprehensive error handling
 2. **Validator Logic** - Pure functions with modular validation rules

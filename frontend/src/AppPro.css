@@ -150,43 +150,53 @@ body.dark-mode .top-navbar {
   align-items: center;
 }
 
-.user-welcome {
+.user-greeting {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   background: rgba(255, 255, 255, 0.8);
   padding: 8px 16px;
-  border-radius: var(--radius-lg);
+  border-radius: 25px;
   border: 1px solid var(--gray-200);
   box-shadow: var(--shadow-sm);
-  transition: var(--transition);
-}
-
-body.dark-mode .user-welcome {
-  background: rgba(51, 65, 85, 0.8);
-  border: 1px solid #475569;
-}
-
-.welcome-text {
   font-weight: 600;
   color: var(--gray-800);
-  font-size: 0.95rem;
-  transition: var(--transition);
 }
 
-body.dark-mode .welcome-text {
+body.dark-mode .user-greeting {
+  background: rgba(51, 65, 85, 0.8);
+  border: 1px solid #475569;
   color: #e2e8f0;
 }
 
-.user-tier-badge {
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
-  color: white;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.wave-icon {
+  font-size: 1.2em;
+  animation: wave 2s ease-in-out infinite;
+}
+
+@keyframes wave {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(20deg); }
+  75% { transform: rotate(-10deg); }
+}
+
+.greeting-text {
+  font-size: 0.95rem;
+}
+
+.auth-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-btn {
+  background: var(--primary) !important;
+  color: white !important;
+}
+
+.profile-btn:hover {
+  background: var(--secondary) !important;
 }
 
 .navbar-right {
