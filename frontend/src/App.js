@@ -1157,20 +1157,7 @@ function App() {
                   <>Anonymous Validation History</>
                 )}
               </h3>
-              <div className="history-stats">
-                <span className="history-count">
-                  {filteredHistory.length} record{filteredHistory.length !== 1 ? 's' : ''}
-                </span>
-                {user ? (
-                  <span className="user-tier-indicator">
-                    {user.subscriptionTier.toUpperCase()} Account • Database Storage
-                  </span>
-                ) : (
-                  <span className="storage-indicator">
-                    📱 Browser Storage Only
-                  </span>
-                )}
-              </div>
+
             </div>
             <div className="history-controls">
               <input
@@ -1205,8 +1192,29 @@ function App() {
               <div className="loading-message">Loading history...</div>
             ) : filteredHistory.length === 0 ? (
               <div className="empty-history">
-                <p>No validation history yet</p>
-                <p>Validate some emails to see them here!</p>
+                {user ? (
+                  <>
+                    <div className="empty-icon">📊</div>
+                    <h3>No validation history yet</h3>
+                    <p>Your validated emails will appear here with full database backup</p>
+                    <p className="empty-hint">Start validating emails to build your history!</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="empty-icon">📱</div>
+                    <h3>No validations yet</h3>
+                    <p>Anonymous users get browser-only storage</p>
+                    <p className="empty-hint">
+                      <strong>Sign up</strong> for database backup and unlimited validations!
+                    </p>
+                    <button 
+                      className="signup-cta-btn"
+                      onClick={() => navigate('/signup')}
+                    >
+                      Create Free Account
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               <div className="history-table-container">

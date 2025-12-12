@@ -24,6 +24,9 @@ from functools import wraps
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+# Import admin system
+from admin_simple import register_admin_routes
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -430,7 +433,7 @@ def signup():
         import secrets
         api_key = f"ev_{secrets.token_hex(32)}"
         
-        # Create user in database with proper defaults
+        # Create user in database with proper free tier defaults
         user_data = {
             'email': email,
             'password_hash': password_hash,
@@ -439,7 +442,7 @@ def signup():
             'api_key': api_key,
             'subscription_tier': 'free',  # Default tier
             'api_calls_count': 0,         # Start with 0 calls
-            'api_calls_limit': 10,        # Free tier limit
+            'api_calls_limit': 10,        # Free tier limit (10 validations)
             'is_verified': False,
             'is_active': True
         }
@@ -538,6 +541,17 @@ def login():
                 'error': 'Account disabled',
                 'message': 'Your account has been disabled'
             }), 401
+        
+        # Check if account is suspended
+        if user.get('is_suspended', False):
+            suspension_reason = user.get('suspension_reason', 'No reason provided')
+            return jsonify({
+                'error': 'Account suspended',
+                'message': f'Your account has been suspended. Reason: {suspension_reason}',
+                'suspension_reason': suspension_reason,
+                'suspended_at': user.get('suspended_at'),
+                'contact_support': True
+            }), 403
         
         # Verify password
         if not verify_password(password, user['password_hash']):
@@ -801,6 +815,12 @@ def validate_email():
     start_time = time.time()
     
     try:
+        # Extract anonymous user ID (for logging and fallback)
+        try:
+            anon_user_id = get_anon_user_id()
+        except ValueError:
+            anon_user_id = "unknown"  # Fallback for authenticated users
+        
         # Check if user is authenticated (required for database storage)
         user_id = None
         authenticated_user = None
@@ -843,7 +863,7 @@ def validate_email():
         data = request.get_json()
         
         if not data or 'email' not in data:
-            logger.warning(f"Missing email parameter from user {anon_user_id}")
+            logger.warning(f"Missing email parameter from user {user_id or anon_user_id}")
             return jsonify({
                 'error': 'Missing email parameter',
                 'message': 'Please provide an email address'
@@ -860,7 +880,7 @@ def validate_email():
                 'message': 'Email must be a valid format'
             }), 400
         
-        logger.info(f"Validating email: {email} (user: {anon_user_id}, advanced: {advanced})")
+        logger.info(f"Validating email: {email} (user_id: {user_id}, anon_id: {anon_user_id}, advanced: {advanced})")
         
         # Validate email using TIERED system
         if advanced:
@@ -948,41 +968,15 @@ def validate_email():
             logger.error(f"Email enrichment failed: {str(e)}")
             result['enrichment'] = {'error': str(e)}
         
-        # Store in database with user tracking
+        # Store in database ONLY for authenticated users
         try:
             storage = get_storage()
             
-            # Check if user is authenticated and handle API limits
-            user_id = None
-            authenticated_user = None
-            try:
-                auth_header = request.headers.get('Authorization')
-                if auth_header and auth_header.startswith('Bearer '):
-                    token = auth_header.split(' ')[1]
-                    payload = verify_jwt_token(token)
-                    user_id = payload.get('user_id')
-                    
-                    # Get user details for API limiting
-                    authenticated_user = storage.get_user_by_id(user_id)
-                    if authenticated_user:
-                        # Check API limits
-                        if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
-                            return jsonify({
-                                'error': 'API limit exceeded',
-                                'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
-                                'current_usage': authenticated_user['api_calls_count'],
-                                'limit': authenticated_user['api_calls_limit']
-                            }), 429
-                        
-                        logger.info(f"Authenticated user {user_id} ({authenticated_user['email']}) validating email: {email} - Usage: {authenticated_user['api_calls_count']}/{authenticated_user['api_calls_limit']}")
-            except Exception as e:
-                # Not authenticated, use anonymous tracking
-                logger.debug(f"No authentication or invalid token: {str(e)}")
-                pass
-            
+            # Only store in database for authenticated users
+            # Free users should use localStorage only (privacy-first approach)
             record = storage.create_record({
                 'anon_user_id': anon_user_id,
-                'user_id': user_id,  # Will be None for anonymous users
+                'user_id': user_id,  # Always present for authenticated users
                 'email': email,
                 'valid': result['valid'],
                 'confidence_score': result.get('confidence_score', 0),
@@ -1009,9 +1003,9 @@ def validate_email():
                 except Exception as e:
                     logger.error(f"Failed to increment API usage: {str(e)}")
             
-            logger.info(f"Validation stored: {email} (valid: {result['valid']}, score: {result.get('confidence_score')})")
+            logger.info(f"Validation stored in database: {email} (valid: {result['valid']}, score: {result.get('confidence_score')}) for user {user_id}")
         except Exception as e:
-            logger.error(f"Storage failed: {str(e)}")
+            logger.error(f"Database storage failed: {str(e)}")
             result['stored'] = False
             result['storage_error'] = str(e)
         
@@ -1029,11 +1023,11 @@ def validate_email():
 @rate_limit
 def validate_email_local():
     """
-    Validate single email for ANONYMOUS users (NO database storage).
+    Validate single email for ANONYMOUS users (LIMITED to 2 validations).
     Results are returned but not saved to database.
     
     Headers:
-        X-User-ID: Anonymous user ID (optional, for rate limiting only)
+        X-User-ID: Anonymous user ID (required for tracking limits)
     
     Request body:
         {
@@ -1050,12 +1044,44 @@ def validate_email_local():
             "risk_assessment": {...},
             "enrichment": {...},
             "processing_time": 0.123,
-            "storage": "local_only"
+            "storage": "local_only",
+            "anonymous_usage": {"used": 1, "limit": 2}
         }
     """
     start_time = time.time()
     
     try:
+        # Extract anonymous user ID for tracking limits
+        try:
+            anon_user_id = get_anon_user_id()
+        except ValueError as e:
+            return jsonify({
+                'error': 'Anonymous ID required',
+                'message': 'Please refresh the page to generate an anonymous ID'
+            }), 400
+        
+        # Check anonymous user limits (2 validations max)
+        storage = get_storage()
+        try:
+            # Count existing validations for this anonymous user
+            existing_validations = storage.client.table('email_validations').select('id').eq('anon_user_id', anon_user_id).execute()
+            validation_count = len(existing_validations.data) if existing_validations.data else 0
+            
+            ANONYMOUS_LIMIT = 2
+            if validation_count >= ANONYMOUS_LIMIT:
+                return jsonify({
+                    'error': 'Anonymous limit reached',
+                    'message': f'Anonymous users can only validate {ANONYMOUS_LIMIT} emails. Please sign up for unlimited access!',
+                    'anonymous_usage': {
+                        'used': validation_count,
+                        'limit': ANONYMOUS_LIMIT
+                    },
+                    'upgrade_required': True
+                }), 429
+        except Exception as e:
+            logger.warning(f"Could not check anonymous limits: {e}")
+            # Continue anyway if database check fails
+        
         data = request.get_json()
         
         if not data or 'email' not in data:
@@ -1155,11 +1181,42 @@ def validate_email_local():
             logger.error(f"Email enrichment failed: {str(e)}")
             result['enrichment'] = {'error': str(e)}
         
-        # Mark as local-only storage
-        result['storage'] = 'local_only'
-        result['stored'] = False
+        # Store validation for anonymous user (to track limits)
+        try:
+            storage = get_storage()
+            record = storage.create_record({
+                'anon_user_id': anon_user_id,
+                'user_id': None,  # Anonymous user
+                'email': email,
+                'valid': result['valid'],
+                'confidence_score': result.get('confidence_score', 0),
+                'checks': result.get('checks', {}),
+                'smtp_details': result.get('smtp_details'),
+                'is_disposable': result.get('checks', {}).get('is_disposable', False),
+                'is_role_based': result.get('checks', {}).get('is_role_based', False),
+                'is_catch_all': result.get('is_catch_all', False)
+            })
+            result['record_id'] = record['id']
+            result['stored'] = True
+            
+            # Get updated count
+            updated_validations = storage.client.table('email_validations').select('id').eq('anon_user_id', anon_user_id).execute()
+            current_count = len(updated_validations.data) if updated_validations.data else 0
+            
+            result['anonymous_usage'] = {
+                'used': current_count,
+                'limit': 2,
+                'remaining': 2 - current_count
+            }
+            
+            logger.info(f"Anonymous validation stored: {email} (valid: {result['valid']}) - Usage: {current_count}/2")
+        except Exception as e:
+            logger.error(f"Failed to store anonymous validation: {str(e)}")
+            result['stored'] = False
+            result['anonymous_usage'] = {'used': 0, 'limit': 2, 'remaining': 2}
         
-        logger.info(f"Anonymous validation completed: {email} (valid: {result['valid']}, score: {result.get('confidence_score')}) - NOT STORED")
+        # Mark as anonymous validation
+        result['storage'] = 'anonymous_tracked'
         
         return jsonify(result)
         
@@ -1209,6 +1266,30 @@ def validate_batch_endpoint():
                 'error': 'Authentication required',
                 'message': str(e)
             }), 400
+        
+        # Check if user is authenticated - batch validation requires login
+        user_id = None
+        try:
+            auth_header = request.headers.get('Authorization')
+            if not auth_header or not auth_header.startswith('Bearer '):
+                return jsonify({
+                    'error': 'Login required for batch validation',
+                    'message': 'Batch validation is only available for registered users. Please sign up or login to validate multiple emails at once.',
+                    'feature_restricted': True,
+                    'single_validation_available': True
+                }), 401
+            
+            token = auth_header.split(' ')[1]
+            payload = verify_jwt_token(token)
+            user_id = payload.get('user_id')
+            logger.info(f"Authenticated batch validation for user {user_id}")
+        except Exception as e:
+            return jsonify({
+                'error': 'Login required for batch validation',
+                'message': 'Batch validation is only available for registered users. Please sign up or login to validate multiple emails at once.',
+                'feature_restricted': True,
+                'single_validation_available': True
+            }), 401
         
         data = request.get_json()
         
@@ -1418,7 +1499,7 @@ def validate_batch_stream():
     import json
     
     try:
-        # Extract anonymous user ID
+        # Extract anonymous user ID and check authentication
         try:
             anon_user_id = get_anon_user_id()
         except ValueError as e:
@@ -1427,6 +1508,26 @@ def validate_batch_stream():
                 'error': 'Authentication required',
                 'message': str(e)
             }), 400
+        
+        # Check if user is authenticated and validate API limits
+        user_id = None
+        authenticated_user = None
+        try:
+            auth_header = request.headers.get('Authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                payload = verify_jwt_token(token)
+                user_id = payload.get('user_id')
+                
+                # Get user details for API limiting
+                storage = get_storage()
+                authenticated_user = storage.get_user_by_id(user_id)
+                if authenticated_user:
+                    logger.info(f"Authenticated batch validation for user {user_id} ({authenticated_user['email']})")
+        except Exception as e:
+            # Not authenticated, continue as anonymous
+            logger.debug(f"No authentication or invalid token for batch: {str(e)}")
+            pass
         
         data = request.get_json()
         
@@ -1439,6 +1540,37 @@ def validate_batch_stream():
         emails = data.get('emails', [])
         advanced = data.get('advanced', True)
         remove_duplicates = data.get('remove_duplicates', True)
+        
+        # Check API limits and subscription tier for authenticated users BEFORE processing
+        if authenticated_user:
+            # Block batch validation for free tier users
+            if authenticated_user.get('subscription_tier', 'free') == 'free':
+                return jsonify({
+                    'error': 'Feature not available',
+                    'message': 'Batch validation is only available for paid plans. Upgrade to Pro to access batch processing!',
+                    'subscription_tier': authenticated_user.get('subscription_tier', 'free'),
+                    'upgrade_required': True
+                }), 403
+            
+            if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+                return jsonify({
+                    'error': 'API limit exceeded',
+                    'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
+                    'current_usage': authenticated_user['api_calls_count'],
+                    'limit': authenticated_user['api_calls_limit']
+                }), 429
+            
+            # Check if batch would exceed remaining limit
+            remaining_calls = authenticated_user['api_calls_limit'] - authenticated_user['api_calls_count']
+            if len(emails) > remaining_calls:
+                return jsonify({
+                    'error': 'Batch size exceeds remaining API calls',
+                    'message': f'This batch contains {len(emails)} emails, but you only have {remaining_calls} API calls remaining. Please reduce the batch size or upgrade your plan.',
+                    'current_usage': authenticated_user['api_calls_count'],
+                    'limit': authenticated_user['api_calls_limit'],
+                    'batch_size': len(emails),
+                    'remaining_calls': remaining_calls
+                }), 429
         
         # Track original count
         original_count = len(emails)
@@ -1557,6 +1689,7 @@ def validate_batch_stream():
                             try:
                                 storage.create_record({
                                     'anon_user_id': anon_user_id,
+                                    'user_id': user_id,  # Include user_id for authenticated users
                                     'email': result.get('email'),
                                     'valid': result.get('valid', False),
                                     'confidence_score': result.get('confidence_score', 0),
@@ -1564,6 +1697,15 @@ def validate_batch_stream():
                                     'is_disposable': result.get('checks', {}).get('is_disposable', False),
                                     'is_role_based': result.get('checks', {}).get('is_role_based', False)
                                 })
+                                
+                                # Increment API usage for authenticated users
+                                if authenticated_user and user_id:
+                                    try:
+                                        storage.increment_api_usage(user_id, 1)
+                                        logger.debug(f"API usage incremented for user {user_id}")
+                                    except Exception as e:
+                                        logger.error(f"Failed to increment API usage: {str(e)}")
+                                        
                             except Exception as e:
                                 logger.error(f"Failed to store validation: {str(e)}")
                     
@@ -2366,9 +2508,13 @@ def record_simple_bounce():
 # ============================================================================
 
 @app.route('/api/email/send', methods=['POST'])
+@auth_required
 def send_single_email():
     """
-    Send a single email.
+    Send a single email (requires authentication).
+    
+    Headers:
+        Authorization: Bearer <jwt_token>
     
     Request:
         {
@@ -2443,6 +2589,7 @@ def send_single_email():
 
 
 @app.route('/api/email/send/batch', methods=['POST'])
+@auth_required
 def send_batch_emails():
     """
     Send emails to multiple recipients.
@@ -2707,13 +2854,17 @@ def test_bounce_recording():
 # ============================================================================
 
 if __name__ == '__main__':
+    # Register admin routes
+    register_admin_routes(app)
+    
     print("=" * 70)
-    print("Email Platform - Validate & Send Emails")
+    print("Email Platform - Validate & Send Emails + Admin System")
     print("=" * 70)
     print("\n🚀 Server starting on http://localhost:5000")
     print("🔐 Authentication: Anonymous User ID (X-User-ID header)")
     print("📊 Private history without login")
     print("📧 Email sending with SendGrid integration")
+    print("🛡️  Admin system integrated")
     
     print("\n📧 Email Validation Endpoints:")
     print("  - POST /api/validate          - Validate single email")
@@ -2727,9 +2878,17 @@ if __name__ == '__main__':
     print("  - POST /api/email/config/test - Test SendGrid config")
     print("  - GET  /api/email/stats       - Email delivery stats")
     
+    print("\n🛡️  Admin Endpoints:")
+    print("  - POST /admin/auth/login      - Admin login")
+    print("  - GET  /admin/dashboard       - Admin dashboard")
+    print("  - GET  /admin/users           - User management")
+    print("  - POST /admin/users/{id}/suspend - Suspend user")
+    
     print("\n🌐 Frontend: http://localhost:3000 (if running)")
+    print("🔧 Admin Panel: http://localhost:3000/admin (after login)")
     print("💡 Tip: Use 'Send Emails' tab to compose and send emails")
     print("⚙️  Setup: Add SENDGRID_API_KEY to .env file")
+    print("🔑 Default Admin: admin@emailvalidator.com / admin123")
     print("\n" + "=" * 70)
     print()
     

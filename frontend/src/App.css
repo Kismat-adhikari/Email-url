@@ -2042,14 +2042,59 @@ body.dark-mode .blocked-email-box p {
 
 .empty-history {
   text-align: center;
-  padding: 60px;
+  padding: 60px 40px;
+  color: #64748b;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  margin: 20px 0;
+}
+
+.empty-history .empty-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.7;
+}
+
+.empty-history h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #334155;
+}
+
+.empty-history p {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
   color: #64748b;
 }
 
-.empty-history p:first-child {
-  font-size: 1.5rem;
+.empty-history .empty-hint {
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 1.5rem;
+}
+
+.signup-cta-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
   font-weight: 600;
-  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+}
+
+.signup-cta-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
+}
+
+.history-count.empty {
+  color: #94a3af;
+  font-style: italic;
 }
 
 /* History Table */
@@ -2174,9 +2219,26 @@ body.dark-mode .history-summary {
   color: #94a3b8;
 }
 
-body.dark-mode .empty-history,
+body.dark-mode .empty-history {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  border-color: #475569;
+  color: #94a3b8;
+}
+
+body.dark-mode .empty-history h3 {
+  color: #f1f5f9;
+}
+
+body.dark-mode .empty-history .empty-hint {
+  color: #cbd5e1;
+}
+
 body.dark-mode .loading-message {
   color: #94a3b8;
+}
+
+body.dark-mode .history-count.empty {
+  color: #64748b;
 }
 
 /* Header Actions */
