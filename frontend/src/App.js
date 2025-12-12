@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
@@ -161,10 +161,10 @@ function App() {
     } else {
       delete api.defaults.headers['Authorization'];
     }
-  }, [authToken]);
+  }, [authToken, api]);
 
   // Logout function
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       if (authToken) {
         await api.post('/api/auth/logout');
@@ -181,7 +181,7 @@ function App() {
       // Redirect to landing page
       window.location.href = '/testing';
     }
-  };
+  }, [authToken, api]);
 
   useEffect(() => {
     // Apply dark mode class
@@ -216,28 +216,14 @@ function App() {
     };
 
     refreshUserData();
-  }, []); // Run once on app load
-
-  useEffect(() => {
-    // Clean up signup success URL parameter (no alert needed)
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('signup') === 'success') {
-      // Clean up URL without showing alert
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-    
-    // Reload history when user authentication changes
-    if (historyMode) {
-      loadHistory();
-    }
-  }, [user, historyMode]);
+  }, [api, authToken, user, handleLogout]); // Run once on app load
 
   // Helper function for immediate suspension checking
-  const checkUserStatus = async () => {
+  const checkUserStatus = useCallback(async () => {
     if (!user || !authToken) return true; // Not logged in, no need to check
     
     try {
-      const response = await api.get('/api/auth/check-status');
+      await api.get('/api/auth/check-status');
       return true; // User is still active
     } catch (error) {
       if (error.response?.status === 403 && error.response?.data?.suspended) {
@@ -253,7 +239,57 @@ function App() {
       }
       return true; // Other errors, assume user is still active
     }
-  };
+  }, [user, authToken, api, handleLogout]);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      if (user) {
+        // Authenticated user - load from database
+        const response = await api.get('/api/history?limit=100');
+        const historyData = response.data.history || [];
+        
+        setHistory(historyData);
+        setFilteredHistory(historyData);
+        
+        console.log(`📊 Loaded ${historyData.length} database records for authenticated user: ${user.firstName} ${user.lastName}`);
+      } else {
+        // Anonymous user - load from localStorage
+        const localHistory = getLocalStorageHistory();
+        
+        setHistory(localHistory);
+        setFilteredHistory(localHistory);
+        
+        console.log(`📊 Loaded ${localHistory.length} localStorage records for anonymous user`);
+      }
+      
+    } catch (err) {
+      console.error('History loading error:', err);
+      if (user) {
+        setError('Failed to load history from server');
+      } else {
+        // Fallback to empty history for localStorage errors
+        setHistory([]);
+        setFilteredHistory([]);
+      }
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [user, api]);
+
+  useEffect(() => {
+    // Clean up signup success URL parameter (no alert needed)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('signup') === 'success') {
+      // Clean up URL without showing alert
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    
+    // Reload history when user authentication changes
+    if (historyMode) {
+      loadHistory();
+    }
+  }, [user, historyMode, loadHistory]);
 
   // Real-time suspension monitoring
   useEffect(() => {
@@ -264,7 +300,7 @@ function App() {
 
     // Cleanup interval on unmount
     return () => clearInterval(statusInterval);
-  }, [user, authToken]);
+  }, [user, authToken, checkUserStatus]);
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
@@ -746,44 +782,6 @@ function App() {
       setLoading(false);
     }
   };
-
-  const loadHistory = async () => {
-    setHistoryLoading(true);
-    try {
-      if (user) {
-        // Authenticated user - load from database
-        const response = await api.get('/api/history?limit=100');
-        const historyData = response.data.history || [];
-        
-        setHistory(historyData);
-        setFilteredHistory(historyData);
-        
-        console.log(`📊 Loaded ${historyData.length} database records for authenticated user: ${user.firstName} ${user.lastName}`);
-      } else {
-        // Anonymous user - load from localStorage
-        const localHistory = getLocalStorageHistory();
-        
-        setHistory(localHistory);
-        setFilteredHistory(localHistory);
-        
-        console.log(`📊 Loaded ${localHistory.length} localStorage records for anonymous user`);
-      }
-      
-    } catch (err) {
-      console.error('History loading error:', err);
-      if (user) {
-        setError('Failed to load history from server');
-      } else {
-        // Fallback to empty history for localStorage errors
-        setHistory([]);
-        setFilteredHistory([]);
-      }
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-
 
   const filterHistory = () => {
     let filtered = [...history];

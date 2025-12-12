@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiSend, FiUsers, FiMail, FiSettings, FiCheck, FiAlertCircle } from 'react-icons/fi';
+import { FiSend, FiUsers, FiMail, FiCheck, FiAlertCircle } from 'react-icons/fi';
 import './EmailComposer.css';
 
 const EmailComposer = () => {
@@ -65,26 +65,7 @@ const EmailComposer = () => {
       .filter(email => email.length > 0);
   };
 
-  const checkBounceHistory = async (email) => {
-    try {
-      const response = await fetch(`/api/validate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': localStorage.getItem('anon_user_id') || 'unknown'
-        },
-        body: JSON.stringify({ email, advanced: true })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        return result.bounce_check || { has_bounced: false, risk_level: 'low' };
-      }
-    } catch (error) {
-      console.error('Failed to check bounce history:', error);
-    }
-    return { has_bounced: false, risk_level: 'low' };
-  };
+  // Removed unused checkBounceHistory function
 
   const sendEmail = async () => {
     if (!emailData.recipients || !emailData.subject || !emailData.content) {

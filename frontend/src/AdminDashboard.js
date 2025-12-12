@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FiUsers, FiActivity, FiMail, FiShield, FiLogOut, FiRefreshCw,
@@ -28,21 +28,7 @@ const AdminDashboard = () => {
     reason: ''
   });
 
-  useEffect(() => {
-    // Check admin authentication
-    const token = localStorage.getItem('adminToken');
-    const user = localStorage.getItem('adminUser');
-    
-    if (!token || !user) {
-      navigate('/admin/login');
-      return;
-    }
-    
-    setAdminUser(JSON.parse(user));
-    loadDashboardData();
-  }, [navigate]);
-
-  const apiCall = async (endpoint, options = {}) => {
+  const apiCall = useCallback(async (endpoint, options = {}) => {
     const token = localStorage.getItem('adminToken');
     const response = await fetch(`/admin${endpoint}`, {
       ...options,
@@ -62,9 +48,9 @@ const AdminDashboard = () => {
     }
 
     return response.json();
-  };
+  }, [navigate]);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       const data = await apiCall('/dashboard');
       setDashboardData(data);
@@ -73,9 +59,9 @@ const AdminDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiCall]);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const params = new URLSearchParams({
         page: userFilters.page,
@@ -90,13 +76,27 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to load users:', error);
     }
-  };
+  }, [userFilters, apiCall]);
+
+  useEffect(() => {
+    // Check admin authentication
+    const token = localStorage.getItem('adminToken');
+    const user = localStorage.getItem('adminUser');
+    
+    if (!token || !user) {
+      navigate('/admin/login');
+      return;
+    }
+    
+    setAdminUser(JSON.parse(user));
+    loadDashboardData();
+  }, [navigate, loadDashboardData]);
 
   useEffect(() => {
     if (activeTab === 'users') {
       loadUsers();
     }
-  }, [activeTab, userFilters]);
+  }, [activeTab, userFilters, loadUsers]);
 
   const handleLogout = async () => {
     try {
