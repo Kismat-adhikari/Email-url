@@ -1224,10 +1224,14 @@ function App() {
               Single Email
             </button>
             <button
-              className={`pro-tab ${batchMode ? 'active' : ''} ${!adminMode && user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
+              className={`pro-tab ${batchMode ? 'active' : ''} ${!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? 'disabled pro-feature' : ''}`}
               onClick={() => {
-                if (!adminMode && user && user.subscriptionTier === 'free') {
-                  setError('Batch validation is only available for Pro plans. Upgrade to validate multiple emails at once!');
+                if (!adminMode && (!user || (user && user.subscriptionTier === 'free'))) {
+                  if (!user) {
+                    setError('Batch validation requires an account. Sign up for free to get started!');
+                  } else {
+                    setError('Batch validation is only available for Pro plans. Upgrade to validate multiple emails at once!');
+                  }
                   return;
                 }
                 setBatchMode(true);
@@ -1237,14 +1241,14 @@ function App() {
                 setBatchResults(null);
                 setError(null);
               }}
-              disabled={!adminMode && user && user.subscriptionTier === 'free'}
-              title={!adminMode && user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for batch validation' : 'Validate multiple emails at once'}
+              disabled={!adminMode && (!user || (user && user.subscriptionTier === 'free'))}
+              title={!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? (!user ? 'Sign up to access batch validation' : 'Upgrade to Pro for batch validation') : 'Validate multiple emails at once'}
             >
               <div className="pro-tab-content">
                 <span className="pro-tab-icon"><FiList /></span>
                 <span className="pro-tab-text">
                   Batch Validation
-                  {!adminMode && user && user.subscriptionTier === 'free' && (
+                  {!adminMode && (!user || (user && user.subscriptionTier === 'free')) && (
                     <span className="pro-badge">PRO</span>
                   )}
                   {adminMode && (
@@ -1254,10 +1258,14 @@ function App() {
               </div>
             </button>
             <button
-              className={`pro-tab ${emailMode ? 'active' : ''} ${!adminMode && user && user.subscriptionTier === 'free' ? 'disabled pro-feature' : ''}`}
+              className={`pro-tab ${emailMode ? 'active' : ''} ${!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? 'disabled pro-feature' : ''}`}
               onClick={() => {
-                if (!adminMode && user && user.subscriptionTier === 'free') {
-                  setError('Email sending is only available for Pro plans. Upgrade to send emails to validated addresses!');
+                if (!adminMode && (!user || (user && user.subscriptionTier === 'free'))) {
+                  if (!user) {
+                    setError('Email sending requires an account. Sign up for free to get started!');
+                  } else {
+                    setError('Email sending is only available for Pro plans. Upgrade to send emails to validated addresses!');
+                  }
                   return;
                 }
                 setEmailMode(true);
@@ -1267,14 +1275,14 @@ function App() {
                 setBatchResults(null);
                 setError(null);
               }}
-              disabled={!adminMode && user && user.subscriptionTier === 'free'}
-              title={!adminMode && user && user.subscriptionTier === 'free' ? 'Upgrade to Pro for email sending' : 'Send emails to validated addresses'}
+              disabled={!adminMode && (!user || (user && user.subscriptionTier === 'free'))}
+              title={!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? (!user ? 'Sign up to access email sending' : 'Upgrade to Pro for email sending') : 'Send emails to validated addresses'}
             >
               <div className="pro-tab-content">
                 <span className="pro-tab-icon"><FiSend /></span>
                 <span className="pro-tab-text">
                   Send Emails
-                  {!adminMode && user && user.subscriptionTier === 'free' && (
+                  {!adminMode && (!user || (user && user.subscriptionTier === 'free')) && (
                     <span className="pro-badge">PRO</span>
                   )}
                   {adminMode && (
