@@ -15,7 +15,7 @@
 
 #### 🆓 **Free Tier (Signed Up)**
 - **Price**: Free
-- **Email Validation**: 10 emails maximum
+- **Email Validation**: 10 emails per day (resets daily at midnight)
 - **Batch Validation**: ❌ Disabled (Starter+ feature)
 - **Email Sending**: ❌ Disabled (Pro feature)
 - **History Storage**: Database (permanent)
@@ -23,8 +23,8 @@
 - **Support**: Email support
 
 #### 🚀 **Starter Tier**
-- **Price**: $4.99/month (planned)
-- **Email Validation**: 10,000 emails maximum
+- **Price**: $9.99/month (subscription)
+- **Email Validation**: 10,000 emails per month (resets monthly)
 - **Batch Validation**: ✅ Enabled (up to 1,000 per batch)
 - **Email Sending**: ❌ Disabled (Pro feature)
 - **History Storage**: Database + CSV export
@@ -32,8 +32,8 @@
 - **Support**: Priority email support
 
 #### 💎 **Pro Tier**
-- **Price**: $19.99/month (planned)
-- **Email Validation**: 10,000,000 emails maximum (10 million)
+- **Price**: $99.99 (one-time purchase - lifetime access!)
+- **Email Validation**: 10,000,000 emails lifetime (never expires)
 - **Batch Validation**: ✅ Full access (unlimited batch size)
 - **Email Sending**: ✅ Full access (with SendGrid integration)
 - **History Storage**: Database + all export formats

@@ -64,6 +64,65 @@ ADMIN_JWT_SECRET = os.getenv('ADMIN_JWT_SECRET', 'your-super-secret-admin-key-ch
 # ADMIN HELPER FUNCTIONS
 # ============================================================================
 
+def get_daily_api_usage(user_id, storage):
+    """Get today's API usage for a user (for daily limits)"""
+    try:
+        from datetime import datetime, timezone
+        
+        # Get today's date in UTC
+        today = datetime.now(timezone.utc).date()
+        today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+        today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
+        
+        # Query validation history for today
+        result = storage.supabase.table('validation_history').select('id').eq('user_id', user_id).gte('validated_at', today_start.isoformat()).lte('validated_at', today_end.isoformat()).execute()
+        
+        daily_count = len(result.data) if result.data else 0
+        logger.info(f"Daily API usage for user {user_id}: {daily_count} calls today")
+        return daily_count
+        
+    except Exception as e:
+        logger.error(f"Failed to get daily API usage: {str(e)}")
+        return 0
+
+def check_api_limits(user, is_admin=False):
+    """Check API limits based on user's subscription tier"""
+    if is_admin:
+        return True, 0, 'unlimited'  # Admin has unlimited access
+    
+    subscription_tier = user.get('subscription_tier', 'free')
+    
+    if subscription_tier == 'free':
+        # Free tier: 10 per day
+        storage = get_storage()
+        daily_usage = get_daily_api_usage(user['id'], storage)
+        daily_limit = 10
+        
+        if daily_usage >= daily_limit:
+            return False, daily_usage, daily_limit
+        return True, daily_usage, daily_limit
+        
+    elif subscription_tier == 'starter':
+        # Starter tier: 10K per month (use existing monthly logic)
+        monthly_usage = user['api_calls_count']
+        monthly_limit = 10000
+        
+        if monthly_usage >= monthly_limit:
+            return False, monthly_usage, monthly_limit
+        return True, monthly_usage, monthly_limit
+        
+    elif subscription_tier == 'pro':
+        # Pro tier: 10M lifetime
+        lifetime_usage = user['api_calls_count']
+        lifetime_limit = 10000000
+        
+        if lifetime_usage >= lifetime_limit:
+            return False, lifetime_usage, lifetime_limit
+        return True, lifetime_usage, lifetime_limit
+    
+    # Default to free tier limits
+    return check_api_limits({**user, 'subscription_tier': 'free'}, is_admin)
+
 def is_admin_request():
     """Check if the current request is from an admin user"""
     try:
@@ -1330,14 +1389,25 @@ def validate_email():
                     'suspended': True
                 }), 403
                 
-            # Check API limits (bypass for admin users)
+            # Check API limits using new tier-aware system
             is_admin = is_admin_request()
-            if not is_admin and authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+            can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
+            
+            if not can_validate:
+                subscription_tier = authenticated_user.get('subscription_tier', 'free')
+                if subscription_tier == 'free':
+                    message = f'You have reached your daily limit of {limit} API calls. Come back tomorrow or upgrade to Starter for 10K calls per month!'
+                elif subscription_tier == 'starter':
+                    message = f'You have reached your monthly limit of {limit:,} API calls. Upgrade to Pro for 10M lifetime calls!'
+                else:  # pro
+                    message = f'You have reached your lifetime limit of {limit:,} API calls. Contact support for enterprise options.'
+                
                 return jsonify({
                     'error': 'API limit exceeded',
-                    'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
-                    'current_usage': authenticated_user['api_calls_count'],
-                    'limit': authenticated_user['api_calls_limit']
+                    'message': message,
+                    'current_usage': current_usage,
+                    'limit': limit,
+                    'subscription_tier': subscription_tier
                 }), 429
                 
         except ValueError as e:
@@ -2091,33 +2161,45 @@ def validate_batch_authenticated():
         # Check API limits and subscription tier for authenticated users (bypass for admins)
         is_admin = is_admin_request()
         if not is_admin:
+            subscription_tier = authenticated_user.get('subscription_tier', 'free')
+            
             # Block batch validation for free tier users only (starter+ can use batch validation)
-            if authenticated_user.get('subscription_tier', 'free') == 'free':
+            if subscription_tier == 'free':
                 return jsonify({
                     'error': 'Feature not available',
-                    'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter to access batch processing!',
-                    'subscription_tier': authenticated_user.get('subscription_tier', 'free'),
+                    'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter (10K/month) or Pro (10M lifetime) to access batch processing!',
+                    'subscription_tier': subscription_tier,
                     'upgrade_required': True
                 }), 403
             
-            if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+            # Check API limits using new tier-aware system
+            can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
+            
+            if not can_validate:
+                if subscription_tier == 'starter':
+                    message = f'You have reached your monthly limit of {limit:,} API calls. Upgrade to Pro for 10M lifetime calls!'
+                else:  # pro
+                    message = f'You have reached your lifetime limit of {limit:,} API calls. Contact support for enterprise options.'
+                
                 return jsonify({
                     'error': 'API limit exceeded',
-                    'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
-                    'current_usage': authenticated_user['api_calls_count'],
-                    'limit': authenticated_user['api_calls_limit']
+                    'message': message,
+                    'current_usage': current_usage,
+                    'limit': limit,
+                    'subscription_tier': subscription_tier
                 }), 429
             
             # Check if batch would exceed remaining limit
-            remaining_calls = authenticated_user['api_calls_limit'] - authenticated_user['api_calls_count']
+            remaining_calls = limit - current_usage
             if len(emails) > remaining_calls:
                 return jsonify({
                     'error': 'Batch size exceeds remaining API calls',
-                    'message': f'This batch contains {len(emails)} emails, but you only have {remaining_calls} API calls remaining. Please reduce the batch size or upgrade your plan.',
-                    'current_usage': authenticated_user['api_calls_count'],
-                    'limit': authenticated_user['api_calls_limit'],
+                    'message': f'This batch contains {len(emails)} emails, but you only have {remaining_calls:,} API calls remaining. Please reduce the batch size or upgrade your plan.',
+                    'current_usage': current_usage,
+                    'limit': limit,
                     'batch_size': len(emails),
-                    'remaining_calls': remaining_calls
+                    'remaining_calls': remaining_calls,
+                    'subscription_tier': subscription_tier
                 }), 429
         
         # Track original count for duplicate removal
@@ -2357,33 +2439,45 @@ def validate_batch_stream():
         # Check API limits and subscription tier for authenticated users BEFORE processing (bypass for admins)
         is_admin = is_admin_request()
         if authenticated_user and not is_admin:
+            subscription_tier = authenticated_user.get('subscription_tier', 'free')
+            
             # Block batch validation for free tier users only (starter+ can use batch validation)
-            if authenticated_user.get('subscription_tier', 'free') == 'free':
+            if subscription_tier == 'free':
                 return jsonify({
                     'error': 'Feature not available',
-                    'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter to access batch processing!',
-                    'subscription_tier': authenticated_user.get('subscription_tier', 'free'),
+                    'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter (10K/month) or Pro (10M lifetime) to access batch processing!',
+                    'subscription_tier': subscription_tier,
                     'upgrade_required': True
                 }), 403
             
-            if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+            # Check API limits using new tier-aware system
+            can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
+            
+            if not can_validate:
+                if subscription_tier == 'starter':
+                    message = f'You have reached your monthly limit of {limit:,} API calls. Upgrade to Pro for 10M lifetime calls!'
+                else:  # pro
+                    message = f'You have reached your lifetime limit of {limit:,} API calls. Contact support for enterprise options.'
+                
                 return jsonify({
                     'error': 'API limit exceeded',
-                    'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
-                    'current_usage': authenticated_user['api_calls_count'],
-                    'limit': authenticated_user['api_calls_limit']
+                    'message': message,
+                    'current_usage': current_usage,
+                    'limit': limit,
+                    'subscription_tier': subscription_tier
                 }), 429
             
             # Check if batch would exceed remaining limit
-            remaining_calls = authenticated_user['api_calls_limit'] - authenticated_user['api_calls_count']
+            remaining_calls = limit - current_usage
             if len(emails) > remaining_calls:
                 return jsonify({
                     'error': 'Batch size exceeds remaining API calls',
-                    'message': f'This batch contains {len(emails)} emails, but you only have {remaining_calls} API calls remaining. Please reduce the batch size or upgrade your plan.',
-                    'current_usage': authenticated_user['api_calls_count'],
-                    'limit': authenticated_user['api_calls_limit'],
+                    'message': f'This batch contains {len(emails)} emails, but you only have {remaining_calls:,} API calls remaining. Please reduce the batch size or upgrade your plan.',
+                    'current_usage': current_usage,
+                    'limit': limit,
                     'batch_size': len(emails),
-                    'remaining_calls': remaining_calls
+                    'remaining_calls': remaining_calls,
+                    'subscription_tier': subscription_tier
                 }), 429
         elif is_admin:
             logger.info(f"Admin batch validation (unlimited): {len(emails)} emails")

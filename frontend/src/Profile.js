@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUser, FiMail, FiCalendar, FiKey, FiSave, FiEdit3, FiActivity, FiAward, FiArrowLeft, FiLogOut, FiMoon, FiSun, FiZap } from 'react-icons/fi';
 import './Profile.css';
-import { formatApiUsage, formatApiLimit, getCorrectApiLimit, getTierDisplayName, getUsagePercentage } from './utils/apiUtils';
+import { formatApiUsage, formatApiLimit, getCorrectApiLimit, getTierDisplayName, getUsagePercentage, formatApiUsageWithPeriod } from './utils/apiUtils';
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -206,7 +206,7 @@ const Profile = () => {
             } ${user.subscriptionTier === 'pro' ? 'pro-tier' : ''}`}>
               <FiActivity className="usage-icon" />
               <span className="usage-text">
-                {formatApiUsage(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
+                {formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
               </span>
               <span className="usage-label">
                 {getTierDisplayName(user.subscriptionTier)} Tier
@@ -341,7 +341,7 @@ const Profile = () => {
               <div className="profile-value">
                 <div className="usage-display">
                   <span className="usage-numbers">
-                    {formatApiUsage(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
+                    {formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
                   </span>
                   <div className="usage-bar">
                     <div 

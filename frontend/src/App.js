@@ -12,7 +12,7 @@ import {
   FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
 } from 'react-icons/fi';
 import EmailComposer from './EmailComposer';
-import { formatApiUsage, getCorrectApiLimit, getUsagePercentage, formatApiLimit } from './utils/apiUtils';
+import { formatApiUsage, getCorrectApiLimit, getUsagePercentage, formatApiLimit, formatApiUsageWithPeriod, getLimitType } from './utils/apiUtils';
 
 
 // ============================================================================
@@ -1283,7 +1283,7 @@ function App() {
               })()}`}>
                 <FiActivity className="usage-icon" />
                 <span className="usage-text">
-                  {formatApiUsage(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
+                  {formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
                 </span>
                 <span className="usage-label">
                   {user.subscriptionTier === 'free' ? 'Free' : 

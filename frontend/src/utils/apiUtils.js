@@ -7,7 +7,8 @@
 export const TIER_CONFIGS = {
   free: {
     name: 'Free',
-    apiLimit: 10,
+    apiLimit: 10, // 10 per day
+    limitType: 'daily', // daily reset
     features: {
       batchValidation: false,
       emailSending: false
@@ -15,7 +16,8 @@ export const TIER_CONFIGS = {
   },
   starter: {
     name: 'Starter', 
-    apiLimit: 10000,
+    apiLimit: 10000, // 10K per month
+    limitType: 'monthly', // monthly reset
     features: {
       batchValidation: true,
       emailSending: false
@@ -23,7 +25,8 @@ export const TIER_CONFIGS = {
   },
   pro: {
     name: 'Pro',
-    apiLimit: 10000000, // 10 million
+    apiLimit: 10000000, // 10 million lifetime
+    limitType: 'lifetime', // never resets
     features: {
       batchValidation: true,
       emailSending: true
@@ -66,17 +69,33 @@ export const getCorrectApiLimit = (tier) => {
 /**
  * Format API limit for display (without usage)
  * @param {string} tier - User's subscription tier
- * @returns {string} Formatted limit like "10M" or "10K"
+ * @returns {string} Formatted limit like "10M lifetime" or "10K/month"
  */
 export const formatApiLimit = (tier) => {
-  const limit = getCorrectApiLimit(tier);
+  const config = TIER_CONFIGS[tier];
+  if (!config) return '10';
+  
+  const limit = config.apiLimit;
+  let formattedLimit;
   
   if (limit >= 1000000) {
-    return `${(limit / 1000000).toFixed(0)}M`;
+    formattedLimit = `${(limit / 1000000).toFixed(0)}M`;
   } else if (limit >= 1000) {
-    return `${(limit / 1000).toFixed(0)}K`;
+    formattedLimit = `${(limit / 1000).toFixed(0)}K`;
   } else {
-    return limit.toString();
+    formattedLimit = limit.toString();
+  }
+  
+  // Add period indicator
+  switch (config.limitType) {
+    case 'daily':
+      return `${formattedLimit}/day`;
+    case 'monthly':
+      return `${formattedLimit}/month`;
+    case 'lifetime':
+      return `${formattedLimit} lifetime`;
+    default:
+      return formattedLimit;
   }
 };
 
@@ -110,4 +129,39 @@ export const tierHasFeature = (tier, feature) => {
 export const getUsagePercentage = (used, tier) => {
   const limit = getCorrectApiLimit(tier);
   return Math.min((used / limit) * 100, 100);
+};
+
+/**
+ * Get the limit type for a tier
+ * @param {string} tier - User's subscription tier
+ * @returns {string} Limit type ('daily', 'monthly', 'lifetime')
+ */
+export const getLimitType = (tier) => {
+  const config = TIER_CONFIGS[tier];
+  return config ? config.limitType : 'daily';
+};
+
+/**
+ * Format API usage with period indicator
+ * @param {number} used - Number of API calls used
+ * @param {number} limit - API call limit from database
+ * @param {string} tier - User's subscription tier
+ * @returns {string} Formatted string like "5/10 today" or "1.5K/10M lifetime"
+ */
+export const formatApiUsageWithPeriod = (used, limit, tier) => {
+  const config = TIER_CONFIGS[tier];
+  if (!config) return formatApiUsage(used, limit, tier);
+  
+  const basicFormat = formatApiUsage(used, limit, tier);
+  
+  switch (config.limitType) {
+    case 'daily':
+      return `${basicFormat} today`;
+    case 'monthly':
+      return `${basicFormat} this month`;
+    case 'lifetime':
+      return `${basicFormat} lifetime`;
+    default:
+      return basicFormat;
+  }
 };
