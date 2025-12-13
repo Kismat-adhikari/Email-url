@@ -2541,7 +2541,6 @@ function App() {
                   💡 Tip: Share this link via email, Slack, or any messaging app
                 </div>
               </div>
-            )}
             </div>
           </div>
         )}
