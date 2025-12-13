@@ -1132,7 +1132,15 @@ function App() {
 
             {/* Authentication Buttons */}
             {(() => {
-              console.log('🔍 Auth state:', { adminMode, adminUser: !!adminUser, user: !!user });
+              console.log('🔍 Auth state:', { 
+                adminMode, 
+                adminUser: !!adminUser, 
+                user: !!user,
+                adminToken: !!adminToken,
+                localStorage_adminMode: localStorage.getItem('adminMode'),
+                localStorage_adminToken: !!localStorage.getItem('adminToken'),
+                localStorage_adminUser: !!localStorage.getItem('adminUser')
+              });
               return null;
             })()}
             {adminMode ? (
@@ -1397,7 +1405,7 @@ function App() {
               <div className="loading-message">Loading history...</div>
             ) : filteredHistory.length === 0 ? (
               <div className="empty-history">
-                {user ? (
+                {user || adminMode ? (
                   <>
                     <div className="empty-icon">📊</div>
                     <h3>No validation history yet</h3>
@@ -1768,7 +1776,7 @@ function App() {
         {result && !batchMode && (
           <div className={`pro-result-card ${result.valid ? 'valid' : 'invalid'}`}>
             {/* Anonymous User Signup Encouragement */}
-            {!user && (
+            {!user && !adminMode && (
               <div className="anonymous-signup-banner">
                 <div className="signup-banner-content">
                   <div className="signup-banner-icon">💾</div>
