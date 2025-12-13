@@ -646,6 +646,172 @@ def admin_validate_batch():
             'message': str(e)
         }), 500
 
+# ============================================================================
+# SHARE FUNCTIONALITY - Backend Storage for Cross-User Sharing
+# ============================================================================
+
+@app.route('/api/share', methods=['POST'])
+def create_share():
+    """Create a shareable link for batch results."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'results' not in data:
+            return jsonify({'error': 'No results data provided'}), 400
+        
+        # Generate unique share ID
+        import uuid
+        share_id = f"share_{int(time.time())}_{str(uuid.uuid4())[:8]}"
+        
+        # Prepare share data with expiration (7 days)
+        expiration_date = datetime.now() + timedelta(days=7)
+        
+        share_data = {
+            'share_id': share_id,
+            'created_at': datetime.now().isoformat(),
+            'expires_at': expiration_date.isoformat(),
+            'metadata': data.get('metadata', {}),
+            'results': data.get('results', []),
+            'domain_statistics': data.get('domain_statistics'),
+            'shared_by': data.get('shared_by', 'Anonymous User'),
+            'is_public': True  # Anyone with link can view
+        }
+        
+        # Try to store in Supabase, fallback to in-memory storage if table doesn't exist
+        try:
+            supabase = get_storage()
+            result = supabase.table('shared_results').insert(share_data).execute()
+            
+            if result.data:
+                logger.info(f"Created share link in database: {share_id}")
+                return jsonify({
+                    'success': True,
+                    'share_id': share_id,
+                    'share_url': f"{request.host_url}?share={share_id}",
+                    'expires_at': expiration_date.isoformat()
+                })
+            else:
+                raise Exception("Database insert failed")
+                
+        except Exception as db_error:
+            logger.warning(f"Database storage failed, using in-memory fallback: {str(db_error)}")
+            
+            # Fallback: Store in a global dictionary (in-memory)
+            if not hasattr(app, 'shared_data_store'):
+                app.shared_data_store = {}
+            
+            app.shared_data_store[share_id] = share_data
+            
+            logger.info(f"Created share link in memory: {share_id}")
+            return jsonify({
+                'success': True,
+                'share_id': share_id,
+                'share_url': f"{request.host_url}?share={share_id}",
+                'expires_at': expiration_date.isoformat(),
+                'storage': 'memory'  # Indicate fallback storage
+            })
+            
+    except Exception as e:
+        logger.error(f"Share creation failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to create share link',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/share/<share_id>', methods=['GET'])
+def get_share(share_id):
+    """Retrieve shared batch results."""
+    try:
+        # Try database first, then fallback to in-memory storage
+        try:
+            supabase = get_storage()
+            result = supabase.table('shared_results').select('*').eq('share_id', share_id).execute()
+            
+            if result.data:
+                share_data = result.data[0]
+                
+                # Check if expired
+                expiration_date = datetime.fromisoformat(share_data['expires_at'].replace('Z', '+00:00'))
+                if datetime.now() > expiration_date.replace(tzinfo=None):
+                    # Clean up expired data
+                    supabase.table('shared_results').delete().eq('share_id', share_id).execute()
+                    return jsonify({'error': 'This shared link has expired'}), 410
+                
+                logger.info(f"Retrieved share link from database: {share_id}")
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'metadata': share_data['metadata'],
+                        'results': share_data['results'],
+                        'domain_statistics': share_data['domain_statistics'],
+                        'shared_by': share_data['shared_by'],
+                        'created_at': share_data['created_at'],
+                        'expires_at': share_data['expires_at']
+                    }
+                })
+                
+        except Exception as db_error:
+            logger.warning(f"Database retrieval failed, trying in-memory fallback: {str(db_error)}")
+        
+        # Fallback: Check in-memory storage
+        if hasattr(app, 'shared_data_store') and share_id in app.shared_data_store:
+            share_data = app.shared_data_store[share_id]
+            
+            # Check if expired
+            expiration_date = datetime.fromisoformat(share_data['expires_at'])
+            if datetime.now() > expiration_date:
+                # Clean up expired data
+                del app.shared_data_store[share_id]
+                return jsonify({'error': 'This shared link has expired'}), 410
+            
+            logger.info(f"Retrieved share link from memory: {share_id}")
+            return jsonify({
+                'success': True,
+                'data': {
+                    'metadata': share_data['metadata'],
+                    'results': share_data['results'],
+                    'domain_statistics': share_data['domain_statistics'],
+                    'shared_by': share_data['shared_by'],
+                    'created_at': share_data['created_at'],
+                    'expires_at': share_data['expires_at']
+                }
+            })
+        
+        # Not found in either database or memory
+        return jsonify({'error': 'Shared results not found or have expired'}), 404
+        
+    except Exception as e:
+        logger.error(f"Share retrieval failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to retrieve shared results',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/share/cleanup', methods=['POST'])
+def cleanup_expired_shares():
+    """Clean up expired shared results (can be called periodically)."""
+    try:
+        supabase = get_storage()
+        
+        # Delete expired shares
+        current_time = datetime.now().isoformat()
+        result = supabase.table('shared_results').delete().lt('expires_at', current_time).execute()
+        
+        cleaned_count = len(result.data) if result.data else 0
+        logger.info(f"Cleaned up {cleaned_count} expired shares")
+        
+        return jsonify({
+            'success': True,
+            'cleaned_count': cleaned_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Share cleanup failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to cleanup expired shares',
+            'message': str(e)
+        }), 500
+
 @app.route('/api/health')
 def health():
     """Health check endpoint."""

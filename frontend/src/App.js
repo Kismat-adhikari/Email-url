@@ -12,7 +12,7 @@ import {
   FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
 } from 'react-icons/fi';
 import EmailComposer from './EmailComposer';
-import { formatApiUsage, getCorrectApiLimit, getUsagePercentage } from './utils/apiUtils';
+import { formatApiUsage, getCorrectApiLimit, getUsagePercentage, formatApiLimit } from './utils/apiUtils';
 
 
 // ============================================================================
@@ -370,6 +370,67 @@ function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
     
+    // Handle shared batch results
+    const shareId = urlParams.get('share');
+    if (shareId) {
+      const loadSharedData = async () => {
+        try {
+          setLoading(true);
+          
+          // Get shared data from backend API
+          const response = await api.get(`/api/share/${shareId}`);
+          
+          if (response.data.success) {
+            const sharedData = response.data.data;
+            
+            // Set batch mode and load shared results
+            setBatchMode(true);
+            setHistoryMode(false);
+            setEmailMode(false);
+            setBatchResults({
+              results: sharedData.results,
+              valid_count: sharedData.metadata.valid_count,
+              invalid_count: sharedData.metadata.invalid_count,
+              total: sharedData.metadata.total_emails,
+              original_count: sharedData.metadata.total_emails,
+              duplicates_removed: sharedData.metadata.duplicates_removed,
+              processing_time: sharedData.metadata.processing_time,
+              domain_stats: sharedData.domain_statistics,
+              shared: true, // Mark as shared data
+              sharedBy: sharedData.shared_by,
+              generatedAt: sharedData.created_at
+            });
+            
+            // Set mode based on shared data
+            if (sharedData.metadata.validation_mode) {
+              setMode(sharedData.metadata.validation_mode);
+            }
+            
+            console.log('📤 Loaded shared batch results from backend:', sharedData.metadata);
+            
+          } else {
+            setError('Shared results not found or have expired.');
+          }
+          
+        } catch (error) {
+          console.error('❌ Failed to load shared data:', error);
+          if (error.response?.status === 404) {
+            setError('Shared results not found or have expired.');
+          } else if (error.response?.status === 410) {
+            setError('This shared link has expired. Shared results are only available for 7 days.');
+          } else {
+            setError('Failed to load shared results.');
+          }
+        } finally {
+          setLoading(false);
+          // Clean up URL after loading (success or failure)
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      };
+      
+      loadSharedData();
+    }
+    
     // Reload history when user authentication changes
     if (historyMode) {
       loadHistory();
@@ -501,34 +562,50 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
-  const generateShareLink = () => {
+
+
+  const generateShareLink = async () => {
     if (!batchResults || !batchResults.results) return;
 
-    // Create shareable data
-    const shareData = {
-      metadata: {
-        generated_at: new Date().toISOString(),
-        total_emails: batchResults.total,
-        valid_count: batchResults.valid_count,
-        invalid_count: batchResults.invalid_count,
-        duplicates_removed: batchResults.duplicates_removed || 0,
-        processing_time: batchResults.processing_time,
-        validation_mode: mode
-      },
-      domain_statistics: batchResults.domain_stats || null,
-      results: batchResults.results
-    };
+    setLoading(true);
+    
+    try {
+      // Create shareable data
+      const shareData = {
+        metadata: {
+          generated_at: new Date().toISOString(),
+          total_emails: batchResults.total,
+          valid_count: batchResults.valid_count,
+          invalid_count: batchResults.invalid_count,
+          duplicates_removed: batchResults.duplicates_removed || 0,
+          processing_time: batchResults.processing_time,
+          validation_mode: mode
+        },
+        domain_statistics: batchResults.domain_stats || null,
+        results: batchResults.results,
+        shared_by: user ? `${user.firstName} ${user.lastName}` : 'Anonymous User'
+      };
 
-    // Generate unique ID
-    const shareId = `share_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Store in localStorage (in production, this would be a backend API call)
-    localStorage.setItem(shareId, JSON.stringify(shareData));
-    
-    // Generate shareable URL
-    const shareUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
-    setShareLink(shareUrl);
-    setShowShareModal(true);
+      // Send to backend API
+      const response = await api.post('/api/share', shareData);
+      
+      if (response.data.success) {
+        const shareUrl = `${window.location.origin}${window.location.pathname}?share=${response.data.share_id}`;
+        setShareLink(shareUrl);
+        setShowShareModal(true);
+        
+        console.log('🔗 Generated share link:', shareUrl);
+        console.log('📅 Expires:', new Date(response.data.expires_at).toLocaleDateString());
+      } else {
+        setError('Failed to create share link');
+      }
+      
+    } catch (error) {
+      console.error('Share creation failed:', error);
+      setError('Failed to create share link. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const copyShareLink = () => {
@@ -2266,6 +2343,39 @@ function App() {
             <div className="batch-summary">
               <div className="batch-header">
                 <h2>Batch Results</h2>
+                
+                {/* Shared Results Banner */}
+                {batchResults.shared && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    marginBottom: '16px',
+                    padding: '12px 16px',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    borderRadius: '12px',
+                    color: 'white',
+                    fontSize: '0.9rem',
+                    fontWeight: '500'
+                  }}>
+                    <span style={{fontSize: '1.2rem'}}>🔗</span>
+                    <div style={{flex: 1}}>
+                      <div style={{fontWeight: '600'}}>Shared Batch Results</div>
+                      <div style={{fontSize: '0.8rem', opacity: '0.9'}}>
+                        {batchResults.sharedBy && `Shared by: ${batchResults.sharedBy} • `}
+                        Generated: {batchResults.generatedAt ? new Date(batchResults.generatedAt).toLocaleDateString() : 'Unknown'}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontSize: '0.75rem',
+                      opacity: '0.8',
+                      textAlign: 'right'
+                    }}>
+                      <div>📊 {batchResults.total} emails</div>
+                      <div>✅ {batchResults.valid_count} valid</div>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Compact Progress & Controls */}
                 {loading && (
