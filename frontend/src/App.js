@@ -125,6 +125,16 @@ function App() {
   const [lastStatusCheck, setLastStatusCheck] = useState(0);
   const STATUS_CHECK_INTERVAL = 30000; // 30 seconds
   
+  // Anonymous user validation tracking
+  const [anonValidationCount, setAnonValidationCount] = useState(() => {
+    try {
+      return parseInt(localStorage.getItem('anon_validation_count') || '0');
+    } catch {
+      return 0;
+    }
+  });
+  const ANON_VALIDATION_LIMIT = 2;
+  
   const [history, setHistory] = useState([]);
   const [filteredHistory, setFilteredHistory] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -548,17 +558,24 @@ function App() {
       return;
     }
 
-    // Show loading immediately for better UX
-    setLoading(true);
+    // Clear previous results
     setError(null);
     setResult(null);
 
     // Check if authenticated user has reached their limit (skip for admin mode)
     if (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) {
       setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
-      setLoading(false);
       return;
     }
+    
+    // Check if anonymous user has reached their limit
+    if (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) {
+      setError(`Anonymous users can only validate ${ANON_VALIDATION_LIMIT} emails. Please sign up for unlimited access!`);
+      return;
+    }
+
+    // Show loading only after limit checks pass
+    setLoading(true);
 
     try {
       // Choose endpoint based on mode
@@ -589,9 +606,12 @@ function App() {
         console.log(`🔄 API usage updated: ${response.data.api_usage.calls_used}/${response.data.api_usage.calls_limit}`);
       }
       
-      // Save to localStorage for anonymous users
+      // Save to localStorage for anonymous users and increment count
       if (!user && response.data) {
         saveValidationToLocalStorage(response.data);
+        const newCount = anonValidationCount + 1;
+        setAnonValidationCount(newCount);
+        localStorage.setItem('anon_validation_count', newCount.toString());
       }
       
       // Refresh history if on history tab
@@ -1129,13 +1149,20 @@ function App() {
                 )}
               </div>
             ) : (
-              <div className="anonymous-usage-counter" title="Sign up to save your validation history and get API access">
+              <div className={`anonymous-usage-counter ${anonValidationCount >= ANON_VALIDATION_LIMIT ? 'limit-reached' : anonValidationCount >= ANON_VALIDATION_LIMIT * 0.8 ? 'limit-warning' : ''}`} title="Sign up to save your validation history and get API access">
                 <FiActivity className="usage-icon" />
-                <span className="usage-text">Free Mode</span>
-                <span className="usage-label">Unlimited</span>
-                <div className="signup-hint">
-                  <span>💾 Sign up!</span>
-                </div>
+                <span className="usage-text">{anonValidationCount}/{ANON_VALIDATION_LIMIT}</span>
+                <span className="usage-label">Free</span>
+                {anonValidationCount >= ANON_VALIDATION_LIMIT && (
+                  <div className="upgrade-hint">
+                    <FiZap style={{marginRight: '4px'}} /> Sign up for more!
+                  </div>
+                )}
+                {anonValidationCount < ANON_VALIDATION_LIMIT && (
+                  <div className="signup-hint">
+                    <span>💾 Sign up!</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1528,18 +1555,18 @@ function App() {
                 <input
                   type="email"
                   className={`pro-email-input ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
-                  placeholder={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue validating...' : adminMode ? 'Admin: Unlimited validation access...' : 'Enter email address to validate...'}
+                  placeholder={(!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? (!user ? 'Sign up to continue validating...' : 'Upgrade to continue validating...') : adminMode ? 'Admin: Unlimited validation access...' : 'Enter email address to validate...'}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={handleKeyDown}
                   disabled={loading || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
                 />
                 <button
-                  className={`pro-validate-btn ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                  className={`pro-validate-btn ${(!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? 'disabled' : ''}`}
                   onClick={validateEmail}
-                  disabled={loading || !email.trim() || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
+                  disabled={loading || !email.trim() || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT)}
                 >
-                  {!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached' : loading ? 'Validating...' : adminMode ? 'Validate Email (Admin)' : 'Validate Email'}
+                  {(!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? 'Limit Reached' : loading ? 'Validating...' : adminMode ? 'Validate Email (Admin)' : 'Validate Email'}
                 </button>
               </div>
             </div>
