@@ -119,6 +119,7 @@ function App() {
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0, eta: 0, speed: 0 });
   const [shareLink, setShareLink] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showBatchResults, setShowBatchResults] = useState(true);
   
   const [history, setHistory] = useState([]);
   const [filteredHistory, setFilteredHistory] = useState([]);
@@ -2110,6 +2111,42 @@ function App() {
             <div className="batch-summary">
               <div className="batch-header">
                 <h2>Batch Results</h2>
+                
+                {/* Compact Progress & Controls */}
+                {loading && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    marginBottom: '16px',
+                    padding: '12px 16px',
+                    background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+                    borderRadius: '12px',
+                    color: 'white',
+                    fontSize: '0.875rem'
+                  }}>
+                    <span>🚀 {progress.current}/{progress.total} ({progress.percentage}%)</span>
+                    <span>✅ {batchResults?.valid_count || 0} Valid</span>
+                    <span>❌ {batchResults?.invalid_count || 0} Invalid</span>
+                    <span>⚡ {progress.speed}/sec</span>
+                    <span>⏱️ {progress.eta}s ETA</span>
+                    <button 
+                      onClick={() => setShowBatchResults(!showBatchResults)}
+                      style={{
+                        background: 'rgba(255,255,255,0.2)',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      {showBatchResults ? 'Hide' : 'Show'} Results
+                    </button>
+                  </div>
+                )}
+                
                 <div className="export-buttons">
                   <button className="export-btn csv" onClick={exportToCSV} title="Export to CSV (Excel-ready)">
                     <FiDownload /> CSV
@@ -2300,8 +2337,9 @@ function App() {
               </div>
             )}
 
-            <div className="batch-list">
-              {batchResults.results.map((item, index) => (
+            {showBatchResults && (
+              <div className="batch-list" style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                {batchResults.results.map((item, index) => (
                 <div key={index} className={`result-box batch-result-card ${item.valid ? 'valid' : 'invalid'}`}>
                   <div className="result-header">
                     <div className="result-title-row">
@@ -2458,7 +2496,8 @@ function App() {
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2502,6 +2541,7 @@ function App() {
                   💡 Tip: Share this link via email, Slack, or any messaging app
                 </div>
               </div>
+            )}
             </div>
           </div>
         )}
