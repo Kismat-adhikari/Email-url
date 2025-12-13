@@ -435,7 +435,7 @@ def admin_validate_email():
         
         # Perform validation (same as regular endpoint but unlimited)
         if advanced:
-            result = validate_email_tiered(email, tier='premium')
+            result = validate_email_tiered(email)
         else:
             result = validate_email_advanced(email)
         
@@ -1217,76 +1217,106 @@ def validate_email():
                 'checks': {'syntax': is_valid}
             }
         
+        # Fast parallel processing of additional checks
+        import concurrent.futures
+        import threading
+        
+        def safe_pattern_analysis():
+            try:
+                return analyze_email_pattern(email)
+            except Exception as e:
+                logger.error(f"Pattern analysis failed: {str(e)}")
+                return None
+        
+        def safe_risk_check():
+            try:
+                domain = email.split('@')[1]
+                risk_check = comprehensive_risk_check(email, domain)
+                return risk_check
+            except Exception as e:
+                logger.error(f"Risk check failed for {email}: {str(e)}")
+                return None
+        
+        def safe_bounce_check():
+            try:
+                from email_sender import get_email_sender
+                sender = get_email_sender()
+                return sender.check_bounce_history(email)
+            except Exception as e:
+                logger.error(f"Bounce check failed for {email}: {str(e)}")
+                return {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
+        
+        def safe_deliverability():
+            try:
+                return calculate_deliverability_score(email, result)
+            except Exception as e:
+                logger.error(f"Deliverability calculation failed: {str(e)}")
+                return None
+        
+        def safe_status():
+            try:
+                return determine_email_status(result)
+            except Exception as e:
+                logger.error(f"Status determination failed: {str(e)}")
+                return None
+        
+        def safe_enrichment():
+            try:
+                return enricher.enrich_email(email, validation_data=result)
+            except Exception as e:
+                logger.error(f"Email enrichment failed: {str(e)}")
+                return {'error': str(e)}
+        
+        # Run additional checks in parallel with 2 second timeout
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {
+                'pattern': executor.submit(safe_pattern_analysis),
+                'risk': executor.submit(safe_risk_check),
+                'bounce': executor.submit(safe_bounce_check),
+                'deliverability': executor.submit(safe_deliverability),
+                'status': executor.submit(safe_status),
+                'enrichment': executor.submit(safe_enrichment)
+            }
+            
+            # Wait for results with timeout
+            for name, future in futures.items():
+                try:
+                    result_data = future.result(timeout=2.0)  # 2 second timeout per check
+                    if result_data:
+                        if name == 'pattern':
+                            result['pattern_analysis'] = result_data
+                        elif name == 'risk':
+                            result['risk_check'] = result_data
+                            # Override validity if critical risk detected
+                            if result_data['overall_risk'] == 'critical':
+                                result['valid'] = False
+                                logger.warning(f"CRITICAL RISK detected for {email}: {result_data['recommendation']}")
+                                if result.get('reason'):
+                                    result['reason'] += f"; {result_data['recommendation']}"
+                                else:
+                                    result['reason'] = result_data['recommendation']
+                        elif name == 'bounce':
+                            result['bounce_check'] = result_data
+                            # Add bounce warning if exists
+                            if result_data['has_bounced'] and result_data['risk_level'] in ['critical', 'high']:
+                                result['valid'] = False
+                                if result.get('reason'):
+                                    result['reason'] += f"; {result_data['warning']}"
+                                else:
+                                    result['reason'] = result_data['warning']
+                        elif name == 'deliverability':
+                            result['deliverability'] = result_data
+                        elif name == 'status':
+                            result['status'] = result_data
+                        elif name == 'enrichment':
+                            result['enrichment'] = result_data
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"{name} check timed out for {email}")
+                except Exception as e:
+                    logger.error(f"{name} check failed for {email}: {str(e)}")
+        
         processing_time = time.time() - start_time
         result['processing_time'] = round(processing_time, 4)
-        
-        # Pattern analysis
-        try:
-            pattern_analysis = analyze_email_pattern(email)
-            result['pattern_analysis'] = pattern_analysis
-        except Exception as e:
-            logger.error(f"Pattern analysis failed: {str(e)}")
-        
-        # Spam trap & risk detection
-        try:
-            domain = email.split('@')[1]
-            risk_check = comprehensive_risk_check(email, domain)
-            result['risk_check'] = risk_check
-            logger.info(f"Risk check for {email}: {risk_check['overall_risk']}")
-            
-            # Override validity if critical risk detected
-            if risk_check['overall_risk'] == 'critical':
-                result['valid'] = False
-                logger.warning(f"CRITICAL RISK detected for {email}: {risk_check['recommendation']}")
-                if result.get('reason'):
-                    result['reason'] += f"; {risk_check['recommendation']}"
-                else:
-                    result['reason'] = risk_check['recommendation']
-        except Exception as e:
-            logger.error(f"Risk check failed for {email}: {str(e)}")
-        
-        # Integrated bounce check
-        try:
-            from email_sender import get_email_sender
-            sender = get_email_sender()
-            bounce_check = sender.check_bounce_history(email)
-            result['bounce_check'] = bounce_check
-            
-            # Add bounce warning if exists
-            if bounce_check['has_bounced']:
-                logger.info(f"Bounce history for {email}: {bounce_check['total_bounces']} bounces")
-                if bounce_check['risk_level'] in ['critical', 'high']:
-                    result['valid'] = False
-                    if result.get('reason'):
-                        result['reason'] += f"; {bounce_check['warning']}"
-                    else:
-                        result['reason'] = bounce_check['warning']
-        except Exception as e:
-            logger.error(f"Bounce check failed for {email}: {str(e)}")
-            result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
-        
-        # Calculate deliverability score
-        try:
-            deliverability = calculate_deliverability_score(email, result)
-            result['deliverability'] = deliverability
-        except Exception as e:
-            logger.error(f"Deliverability calculation failed: {str(e)}")
-        
-        # Determine email status
-        try:
-            status_info = determine_email_status(result)
-            result['status'] = status_info
-            logger.info(f"Email status for {email}: {status_info['status']}")
-        except Exception as e:
-            logger.error(f"Status determination failed: {str(e)}")
-        
-        # Enrich email data
-        try:
-            enrichment = enricher.enrich_email(email, validation_data=result)
-            result['enrichment'] = enrichment
-        except Exception as e:
-            logger.error(f"Email enrichment failed: {str(e)}")
-            result['enrichment'] = {'error': str(e)}
         
         # Store in database ONLY for authenticated users
         try:

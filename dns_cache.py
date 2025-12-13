@@ -188,19 +188,29 @@ def check_dns_and_mx_cached(domain: str) -> Tuple[bool, bool]:
     dns_valid = False
     mx_valid = False
     
-    # Check DNS resolution
+    # Check DNS resolution with aggressive timeout
     try:
+        # Set socket timeout to 2 seconds for fast response
+        socket.setdefaulttimeout(2.0)
         socket.gethostbyname(domain)
         dns_valid = True
     except (socket.gaierror, socket.herror, socket.timeout, OSError):
         dns_valid = False
     except Exception:
         dns_valid = False
+    finally:
+        # Reset socket timeout
+        socket.setdefaulttimeout(None)
     
     # Check MX records (only if DNS library is available)
     if DNS_AVAILABLE and dns_valid:
         try:
-            mx_records = dns.resolver.resolve(domain, 'MX')
+            # Create resolver with aggressive timeout
+            resolver = dns.resolver.Resolver()
+            resolver.timeout = 1.0  # 1 second timeout
+            resolver.lifetime = 2.0  # 2 second total lifetime
+            
+            mx_records = resolver.resolve(domain, 'MX')
             mx_valid = len(mx_records) > 0
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
             mx_valid = False
