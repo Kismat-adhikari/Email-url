@@ -16,6 +16,14 @@ ADMIN_JWT_SECRET=your_admin_jwt_secret_key
 SENDGRID_API_KEY=your_sendgrid_api_key
 ```
 
+## 🔗 **Optional: Database Setup for Persistent Sharing**
+
+**Share functionality works immediately** with in-memory fallback, but for persistent cross-user sharing:
+
+1. **Run SQL Migration**: Execute `supabase_shared_results_table.sql` in Supabase
+2. **Benefits**: Shares survive server restarts, permanent storage
+3. **Without Database**: Shares work until server restart (perfect for testing)
+
 ## ✅ **Render Configuration Verified**
 - [x] `render.yaml` configured correctly
 - [x] Build command: `pip install -r requirements.txt && cd frontend && npm install && npm run build`
@@ -36,6 +44,13 @@ SENDGRID_API_KEY=your_sendgrid_api_key
 - [x] Dynamic API formatting shows "10M" correctly
 - [x] Email sending interface for Pro users
 - [x] SendGrid API key configuration in Profile
+
+### **Share Functionality**
+- [x] Cross-user sharing with backend API storage
+- [x] In-memory fallback system (works without database)
+- [x] 7-day automatic expiration
+- [x] Works for anyone with the link (no login required)
+- [x] Database migration ready for full functionality
 
 ### **Admin System**
 - [x] Admin user creation with tier assignment
@@ -71,6 +86,14 @@ SENDGRID_API_KEY=your_sendgrid_api_key
 - [ ] Create new Pro user with 10M API calls
 - [ ] Open email validator in admin mode (unlimited access)
 - [ ] Test batch validation with large email list
+
+### **Share Functionality Testing**
+- [ ] Create batch validation results
+- [ ] Click "🔗 Share" button (should work with in-memory fallback)
+- [ ] Copy generated share link
+- [ ] Open link in incognito/private browser
+- [ ] Verify shared results display with green banner
+- [ ] Test with someone else (cross-user sharing)
 
 ### **Pro User Testing**
 - [ ] Login as Pro user
