@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { FiSend, FiUsers, FiMail, FiCheck, FiAlertCircle } from 'react-icons/fi';
+import { FiSend, FiUsers, FiMail, FiCheck, FiAlertCircle, FiSettings, FiExternalLink } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
 import './EmailComposer.css';
 
 const EmailComposer = () => {
+  const navigate = useNavigate();
   const [emailData, setEmailData] = useState({
     recipients: '',
     subject: '',
@@ -161,13 +163,44 @@ const EmailComposer = () => {
       {configStatus && (
         <div className={`config-status ${configStatus.valid ? 'valid' : 'invalid'}`}>
           {configStatus.valid ? (
-            <>
+            <div className="config-success">
               <FiCheck /> SendGrid configured: {configStatus.username}
-            </>
+              <span className="config-ready">Ready to send emails!</span>
+            </div>
           ) : (
-            <>
-              <FiAlertCircle /> Configuration issue: {configStatus.error}
-            </>
+            <div className="config-setup-needed">
+              <div className="config-error">
+                <FiAlertCircle /> SendGrid API Key Required
+              </div>
+              <div className="config-message">
+                To send emails, you need to configure your SendGrid API key in your profile settings.
+              </div>
+              <div className="config-actions">
+                <button 
+                  className="setup-btn primary"
+                  onClick={() => navigate('/profile')}
+                >
+                  <FiSettings /> Configure API Key
+                </button>
+                <a 
+                  href="https://sendgrid.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="setup-btn secondary"
+                >
+                  <FiExternalLink /> Get SendGrid Account
+                </a>
+              </div>
+              <div className="config-help">
+                <h4>Quick Setup:</h4>
+                <ol>
+                  <li>Create a free SendGrid account at <a href="https://sendgrid.com" target="_blank" rel="noopener noreferrer">sendgrid.com</a></li>
+                  <li>Generate an API key in your SendGrid dashboard</li>
+                  <li>Copy the API key (starts with "SG.")</li>
+                  <li>Click "Configure API Key" above to add it to your profile</li>
+                </ol>
+              </div>
+            </div>
           )}
         </div>
       )}

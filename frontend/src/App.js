@@ -12,6 +12,7 @@ import {
   FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
 } from 'react-icons/fi';
 import EmailComposer from './EmailComposer';
+import { formatApiUsage, getCorrectApiLimit, getUsagePercentage } from './utils/apiUtils';
 
 
 // ============================================================================
@@ -563,8 +564,13 @@ function App() {
     setResult(null);
 
     // Check if authenticated user has reached their limit (skip for admin mode)
-    if (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) {
-      setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
+    const correctLimit = getCorrectApiLimit(user?.subscriptionTier);
+    if (!adminMode && user && user.apiCallsCount >= correctLimit) {
+      setError(`You've reached your limit of ${formatApiLimit(user.subscriptionTier)} API calls. ${
+        user.subscriptionTier === 'free' ? 'Upgrade to Starter (10K calls) or Pro (10M calls) for more validations!' : 
+        user.subscriptionTier === 'starter' ? 'Upgrade to Pro (10M calls) for more validations!' : 
+        'You have reached your Pro tier limit. Please contact support if you need more.'
+      }`);
       return;
     }
     
@@ -739,16 +745,25 @@ function App() {
     }
 
     // Check if authenticated user has reached their limit (skip for admin mode)
-    if (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) {
-      setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
+    const correctLimit = getCorrectApiLimit(user?.subscriptionTier);
+    if (!adminMode && user && user.apiCallsCount >= correctLimit) {
+      setError(`You've reached your limit of ${formatApiLimit(user.subscriptionTier)} API calls. ${
+        user.subscriptionTier === 'free' ? 'Upgrade to Starter (10K calls) or Pro (10M calls) for more validations!' : 
+        user.subscriptionTier === 'starter' ? 'Upgrade to Pro (10M calls) for more validations!' : 
+        'You have reached your Pro tier limit. Please contact support if you need more.'
+      }`);
       return;
     }
 
     // Check if batch would exceed user's remaining limit (skip for admin mode)
     if (!adminMode && user) {
-      const remainingCalls = user.apiCallsLimit - user.apiCallsCount;
+      const remainingCalls = correctLimit - user.apiCallsCount;
       if (emails.length > remainingCalls) {
-        setError(`This batch contains ${emails.length} emails, but you only have ${remainingCalls} API calls remaining. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please reduce the batch size or contact support.'}`);
+        setError(`This batch contains ${emails.length} emails, but you only have ${remainingCalls.toLocaleString()} API calls remaining. ${
+          user.subscriptionTier === 'free' ? 'Upgrade to Starter (10K calls) or Pro (10M calls) for more validations!' : 
+          user.subscriptionTier === 'starter' ? 'Upgrade to Pro (10M calls) for more validations!' : 
+          'Please reduce the batch size or contact support if you need more capacity.'
+        }`);
         return;
       }
     }
@@ -821,82 +836,125 @@ function App() {
         });
 
       } else {
-        // Regular users: Use streaming endpoint
+        // Regular users: Use appropriate endpoint
         if (user) {
-          endpoint = '/api/validate/batch/stream'; // Regular authenticated endpoint
+          endpoint = '/api/validate/batch/authenticated'; // Regular authenticated endpoint (non-streaming, reliable)
           headers['Authorization'] = `Bearer ${authToken}`;
         } else {
           endpoint = '/api/validate/batch/local'; // Anonymous endpoint
           headers['X-User-ID'] = anonUserId;
         }
 
-        const response = await fetch(`${API_URL}${endpoint}`, {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify({
-            emails,
-            advanced: mode === 'advanced',
-            remove_duplicates: removeDuplicates
-          })
-        });
+        if (user) {
+          // Authenticated users: Use non-streaming endpoint (reliable)
+          const response = await fetch(`${API_URL}${endpoint}`, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+              emails,
+              advanced: mode === 'advanced',
+              remove_duplicates: removeDuplicates
+            })
+          });
 
-        if (!response.ok) {
-          throw new Error('Stream validation failed');
-        }
+          if (!response.ok) {
+            const errorData = await response.json();
+            console.error('❌ Authenticated batch validation failed:', errorData);
+            throw new Error(errorData.message || 'Batch validation failed');
+          }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
+          const data = await response.json();
           
-          if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
+          // Simulate progress for authenticated users (instant completion)
+          setProgress({
+            current: data.total,
+            total: data.total,
+            percentage: 100,
+            eta: 0,
+            speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : data.total
+          });
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.type === 'start') {
-                // Duplicate info is handled by backend
-              } else if (data.type === 'result') {
-                // Calculate ETA and speed
-                const elapsed = (Date.now() - startTime) / 1000; // seconds
-                const current = data.progress.current;
-                const total = data.progress.total;
-                const speed = current / elapsed; // emails per second
-                const remaining = total - current;
-                const eta = remaining / speed; // seconds
+          // Set final results with domain stats
+          setBatchResults({
+            results: data.results,
+            valid_count: data.valid_count,
+            invalid_count: data.invalid_count,
+            total: data.total,
+            original_count: data.original_count,
+            duplicates_removed: data.duplicates_removed,
+            processing_time: data.processing_time,
+            domain_stats: data.domain_stats || null
+          });
 
-                // Update progress
-                setProgress({
-                  current,
-                  total,
-                  percentage: data.progress.percentage,
-                  eta: Math.ceil(eta),
-                  speed: speed.toFixed(1)
-                });
+        } else {
+          // Anonymous users: Use streaming endpoint
+          const response = await fetch(`${API_URL}${endpoint}`, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+              emails,
+              advanced: mode === 'advanced',
+              remove_duplicates: removeDuplicates
+            })
+          });
 
-                // Save to localStorage for anonymous users
-                if (!user && data.result) {
-                  saveValidationToLocalStorage(data.result);
-                }
+          if (!response.ok) {
+            throw new Error('Stream validation failed');
+          }
 
-                // Add result to the list in real-time
-                setBatchResults(prev => ({
-                  ...prev,
-                  results: [...prev.results, data.result],
-                  valid_count: data.progress.valid,
-                  invalid_count: data.progress.invalid,
-                  total: data.progress.total
-                }));
-              } else if (data.type === 'complete') {
-                // Calculate actual processing time
-                const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = JSON.parse(line.slice(6));
+                
+                if (data.type === 'start') {
+                  // Duplicate info is handled by backend
+                } else if (data.type === 'result') {
+                  // Calculate ETA and speed
+                  const elapsed = (Date.now() - startTime) / 1000; // seconds
+                  const current = data.progress.current;
+                  const total = data.progress.total;
+                  const speed = current / elapsed; // emails per second
+                  const remaining = total - current;
+                  const eta = remaining / speed; // seconds
+
+                  // Update progress
+                  setProgress({
+                    current,
+                    total,
+                    percentage: data.progress.percentage,
+                    eta: Math.ceil(eta),
+                    speed: speed.toFixed(1)
+                  });
+
+                  // Save to localStorage for anonymous users
+                  if (!user && data.result) {
+                    saveValidationToLocalStorage(data.result);
+                  }
+
+                  // Add result to the list in real-time
+                  setBatchResults(prev => ({
+                    ...prev,
+                    results: [...prev.results, data.result],
+                    valid_count: data.progress.valid,
+                    invalid_count: data.progress.invalid,
+                    total: data.progress.total
+                  }));
+                } else if (data.type === 'complete') {
+                  // Calculate actual processing time
+                  const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
                 
                 // Final progress update
                 setProgress({
@@ -918,6 +976,7 @@ function App() {
                   domain_stats: data.domain_stats,
                   processing_time: processingTime
                 }));
+                }
               }
             }
           }
@@ -1092,6 +1151,8 @@ function App() {
 
 
 
+
+
   return (
     <div className="App">
       {/* Top Navigation Bar */}
@@ -1136,15 +1197,40 @@ function App() {
                 </div>
               </div>
             ) : user ? (
-              <div className={`api-usage-counter ${user.apiCallsCount >= user.apiCallsLimit ? 'limit-reached' : user.apiCallsCount >= user.apiCallsLimit * 0.8 ? 'limit-warning' : ''}`}>
+              <div className={`api-usage-counter ${
+                user.subscriptionTier === 'pro' ? 'pro-tier' : ''
+              } ${(() => {
+                const correctLimit = getCorrectApiLimit(user.subscriptionTier);
+                return user.apiCallsCount >= correctLimit ? 'limit-reached' : 
+                       user.apiCallsCount >= correctLimit * 0.8 ? 'limit-warning' : '';
+              })()}`}>
                 <FiActivity className="usage-icon" />
-                <span className="usage-text">{user.apiCallsCount || 0}/{user.apiCallsLimit}</span>
-                <span className="usage-label">
-                  {user.subscriptionTier === 'free' ? 'Free' : 'API Calls'}
+                <span className="usage-text">
+                  {formatApiUsage(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
                 </span>
-                {user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit && (
+                <span className="usage-label">
+                  {user.subscriptionTier === 'free' ? 'Free' : 
+                   user.subscriptionTier === 'starter' ? 'Starter' : 
+                   user.subscriptionTier === 'pro' ? 'Pro' : 'API Calls'}
+                </span>
+                {['free', 'starter'].includes(user.subscriptionTier) && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) && (
                   <div className="upgrade-hint">
-                    <FiZap style={{marginRight: '4px'}} /> Upgrade for unlimited!
+                    <FiZap style={{marginRight: '4px'}} /> {user.subscriptionTier === 'free' ? 'Upgrade to Starter!' : 'Upgrade to Pro!'}
+                  </div>
+                )}
+                {user.subscriptionTier === 'pro' && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) * 0.8 && (
+                  <div className="usage-hint">
+                    <FiActivity style={{marginRight: '4px'}} /> High usage!
+                  </div>
+                )}
+                {user.subscriptionTier === 'pro' && !user.sendgridApiKey && (
+                  <div className="setup-hint">
+                    <FiMail style={{marginRight: '4px'}} /> Setup SendGrid!
+                  </div>
+                )}
+                {user.subscriptionTier === 'pro' && (
+                  <div className="pro-badge-hint">
+                    💎 Pro Features Unlocked!
                   </div>
                 )}
               </div>
@@ -1257,7 +1343,7 @@ function App() {
                   if (!user) {
                     setError('Batch validation requires an account. Sign up for free to get started!');
                   } else {
-                    setError('Batch validation is only available for Pro plans. Upgrade to validate multiple emails at once!');
+                    setError('Batch validation is available for Starter tier and above. Upgrade to validate multiple emails at once!');
                   }
                   return;
                 }
@@ -1269,14 +1355,14 @@ function App() {
                 setError(null);
               }}
               disabled={!adminMode && (!user || (user && user.subscriptionTier === 'free'))}
-              title={!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? (!user ? 'Sign up to access batch validation' : 'Upgrade to Pro for batch validation') : 'Validate multiple emails at once'}
+              title={!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? (!user ? 'Sign up to access batch validation' : 'Upgrade to Starter for batch validation') : 'Validate multiple emails at once'}
             >
               <div className="pro-tab-content">
                 <span className="pro-tab-icon"><FiList /></span>
                 <span className="pro-tab-text">
                   Batch Validation
                   {!adminMode && (!user || (user && user.subscriptionTier === 'free')) && (
-                    <span className="pro-badge">PRO</span>
+                    <span className="pro-badge">STARTER+</span>
                   )}
                   {adminMode && (
                     <span className="admin-badge">ADMIN</span>
@@ -1285,9 +1371,9 @@ function App() {
               </div>
             </button>
             <button
-              className={`pro-tab ${emailMode ? 'active' : ''} ${!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? 'disabled pro-feature' : ''}`}
+              className={`pro-tab ${emailMode ? 'active' : ''} ${!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier))) ? 'disabled pro-feature' : ''}`}
               onClick={() => {
-                if (!adminMode && (!user || (user && user.subscriptionTier === 'free'))) {
+                if (!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier)))) {
                   if (!user) {
                     setError('Email sending requires an account. Sign up for free to get started!');
                   } else {
@@ -1302,14 +1388,14 @@ function App() {
                 setBatchResults(null);
                 setError(null);
               }}
-              disabled={!adminMode && (!user || (user && user.subscriptionTier === 'free'))}
-              title={!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? (!user ? 'Sign up to access email sending' : 'Upgrade to Pro for email sending') : 'Send emails to validated addresses'}
+              disabled={!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier)))}
+              title={!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier))) ? (!user ? 'Sign up to access email sending' : 'Upgrade to Pro for email sending') : 'Send emails to validated addresses'}
             >
               <div className="pro-tab-content">
                 <span className="pro-tab-icon"><FiSend /></span>
                 <span className="pro-tab-text">
                   Send Emails
-                  {!adminMode && (!user || (user && user.subscriptionTier === 'free')) && (
+                  {!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier))) && (
                     <span className="pro-badge">PRO</span>
                   )}
                   {adminMode && (
@@ -1520,13 +1606,13 @@ function App() {
             {/* Single Email Input */}
             <div className="pro-input-section">
               {/* Free Tier Limit Warning (hidden for admin) */}
-              {!adminMode && user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit && (
+              {!adminMode && user && user.subscriptionTier === 'free' && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) && (
                 <div className="limit-reached-banner">
                   <div className="limit-banner-content">
                     <div className="limit-banner-icon">🚫</div>
                     <div className="limit-banner-text">
                       <h3>Free Tier Limit Reached</h3>
-                      <p>You've used all {user.apiCallsLimit} free validations. Upgrade to continue validating emails!</p>
+                      <p>You've used all {formatApiLimit(user.subscriptionTier)} free validations. Upgrade to continue validating emails!</p>
                     </div>
                     <button className="upgrade-btn" onClick={() => navigate('/profile')}>
                       <FiZap style={{marginRight: '6px'}} /> Upgrade Now
@@ -1536,13 +1622,13 @@ function App() {
               )}
               
               {/* Approaching Limit Warning (hidden for admin) */}
-              {!adminMode && user && user.subscriptionTier === 'free' && user.apiCallsCount >= user.apiCallsLimit * 0.8 && user.apiCallsCount < user.apiCallsLimit && (
+              {!adminMode && user && user.subscriptionTier === 'free' && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) * 0.8 && user.apiCallsCount < getCorrectApiLimit(user.subscriptionTier) && (
                 <div className="limit-warning-banner">
                   <div className="limit-banner-content">
                     <div className="limit-banner-icon">⚠️</div>
                     <div className="limit-banner-text">
                       <h3>Approaching Limit</h3>
-                      <p>You have {user.apiCallsLimit - user.apiCallsCount} validations remaining out of {user.apiCallsLimit}.</p>
+                      <p>You have {getCorrectApiLimit(user.subscriptionTier) - user.apiCallsCount} validations remaining out of {formatApiLimit(user.subscriptionTier)}.</p>
                     </div>
                     <button className="upgrade-btn-small" onClick={() => navigate('/profile')}>
                       Upgrade
@@ -1554,19 +1640,19 @@ function App() {
               <div className="pro-input-wrapper">
                 <input
                   type="email"
-                  className={`pro-email-input ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
-                  placeholder={(!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? (!user ? 'Sign up to continue validating...' : 'Upgrade to continue validating...') : adminMode ? 'Admin: Unlimited validation access...' : 'Enter email address to validate...'}
+                  className={`pro-email-input ${!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'disabled' : ''}`}
+                  placeholder={(!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? (!user ? 'Sign up to continue validating...' : 'Upgrade to continue validating...') : adminMode ? 'Admin: Unlimited validation access...' : 'Enter email address to validate...'}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  disabled={loading || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
+                  disabled={loading || (!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier))}
                 />
                 <button
-                  className={`pro-validate-btn ${(!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? 'disabled' : ''}`}
+                  className={`pro-validate-btn ${(!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? 'disabled' : ''}`}
                   onClick={validateEmail}
-                  disabled={loading || !email.trim() || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT)}
+                  disabled={loading || !email.trim() || (!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT)}
                 >
-                  {(!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? 'Limit Reached' : loading ? 'Validating...' : adminMode ? 'Validate Email (Admin)' : 'Validate Email'}
+                  {(!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? 'Limit Reached' : loading ? 'Validating...' : adminMode ? 'Validate Email (Admin)' : 'Validate Email'}
                 </button>
               </div>
             </div>
@@ -1581,14 +1667,14 @@ function App() {
           </>
         ) : (
           <div className="batch-section">
-            {/* Free Tier Batch Restriction (hidden for admin) */}
+            {/* Free Tier Batch Restriction (hidden for admin and starter+) */}
             {!adminMode && user && user.subscriptionTier === 'free' && (
               <div className="feature-restriction-banner">
                 <div className="restriction-banner-content">
                   <div className="restriction-banner-icon"><FiZap /></div>
                   <div className="restriction-banner-text">
-                    <h3>Batch Validation - Pro Feature</h3>
-                    <p>Batch validation is available for Pro users only. Upgrade to validate multiple emails at once, upload files, and access advanced batch analytics!</p>
+                    <h3>Batch Validation - Starter Feature</h3>
+                    <p>Batch validation is available for Starter tier and above. Upgrade to validate multiple emails at once, upload files, and access advanced batch analytics!</p>
                     <div className="feature-list">
                       <span>✅ Unlimited batch processing</span>
                       <span>✅ File upload support (CSV, Excel, PDF)</span>
@@ -1597,7 +1683,7 @@ function App() {
                     </div>
                   </div>
                   <button className="upgrade-btn-large" onClick={() => navigate('/profile')}>
-                    <FiZap style={{marginRight: '8px'}} /> Upgrade to Pro
+                    <FiZap style={{marginRight: '8px'}} /> Upgrade to Starter
                   </button>
                 </div>
               </div>
@@ -1624,16 +1710,16 @@ function App() {
 
             <div className="upload-mode-selector">
               <button
-                className={`upload-mode-btn ${uploadMode === 'text' ? 'active' : ''} ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                className={`upload-mode-btn ${uploadMode === 'text' ? 'active' : ''} ${!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'disabled' : ''}`}
                 onClick={() => setUploadMode('text')}
-                disabled={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit}
+                disabled={!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)}
               >
                 ✏️ Type Emails {adminMode && '(Admin)'}
               </button>
               <button
-                className={`upload-mode-btn ${uploadMode === 'file' ? 'active' : ''} ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+                className={`upload-mode-btn ${uploadMode === 'file' ? 'active' : ''} ${!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'disabled' : ''}`}
                 onClick={() => setUploadMode('file')}
-                disabled={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit}
+                disabled={!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)}
               >
                 📁 Upload File {adminMode && '(Admin)'}
               </button>
@@ -1669,27 +1755,44 @@ function App() {
                     </div>
                     
                     {/* API limit warning for authenticated users (hidden for admin) */}
-                    {!adminMode && user && user.subscriptionTier === 'free' && (
-                      <div className={`api-limit-check ${
-                        finalCount > (user.apiCallsLimit - user.apiCallsCount) ? 'exceeds-limit' : 
-                        finalCount > (user.apiCallsLimit - user.apiCallsCount) * 0.5 ? 'approaching-limit' : 'within-limit'
-                      }`}>
-                        {finalCount > (user.apiCallsLimit - user.apiCallsCount) ? (
-                          <>
-                            ❌ Batch size ({finalCount}) exceeds your remaining limit ({user.apiCallsLimit - user.apiCallsCount})
-                            <div className="limit-suggestion">
-                              Reduce batch size or <strong>upgrade to unlimited</strong>
-                            </div>
-                          </>
-                        ) : finalCount > (user.apiCallsLimit - user.apiCallsCount) * 0.5 ? (
-                          <>
-                            ⚠️ This will use {finalCount} of your {user.apiCallsLimit - user.apiCallsCount} remaining validations
-                          </>
-                        ) : (
-                          <>
-                            ✅ Within your limit ({user.apiCallsLimit - user.apiCallsCount} remaining)
-                          </>
-                        )}
+                    {!adminMode && user && ['free', 'starter', 'pro'].includes(user.subscriptionTier) && (
+                      <div className={`api-limit-check ${(() => {
+                        const correctLimit = getCorrectApiLimit(user.subscriptionTier);
+                        const remaining = correctLimit - user.apiCallsCount;
+                        return finalCount > remaining ? 'exceeds-limit' : 
+                               finalCount > remaining * 0.5 ? 'approaching-limit' : 'within-limit';
+                      })()}`}>
+                        {(() => {
+                          const correctLimit = getCorrectApiLimit(user.subscriptionTier);
+                          const remaining = correctLimit - user.apiCallsCount;
+                          
+                          if (finalCount > remaining) {
+                            return (
+                              <>
+                                ❌ Batch size ({finalCount}) exceeds your remaining limit ({remaining.toLocaleString()})
+                                <div className="limit-suggestion">
+                                  Reduce batch size or <strong>{
+                                    user.subscriptionTier === 'free' ? 'upgrade to starter/pro' : 
+                                    user.subscriptionTier === 'starter' ? 'upgrade to pro (10M calls)' : 
+                                    'contact support for more capacity'
+                                  }</strong>
+                                </div>
+                              </>
+                            );
+                          } else if (finalCount > remaining * 0.5) {
+                            return (
+                              <>
+                                ⚠️ This will use {finalCount} of your {remaining.toLocaleString()} remaining validations
+                              </>
+                            );
+                          } else {
+                            return (
+                              <>
+                                ✅ Within your limit ({remaining.toLocaleString()} remaining)
+                              </>
+                            );
+                          }
+                        })()}
                       </div>
                     )}
                     
@@ -1708,9 +1811,9 @@ function App() {
               <>
                 <div className="format-info">
                   💡 Paste emails in any format: one per line, comma-separated, or copy from Excel/Sheets
-                  {!adminMode && user && user.subscriptionTier === 'free' && (
+                  {!adminMode && user && ['free', 'starter'].includes(user.subscriptionTier) && (
                     <div className="batch-limit-info">
-                      ⚠️ Free tier: {user.apiCallsLimit - user.apiCallsCount} validations remaining
+                      ⚠️ {user.subscriptionTier === 'free' ? 'Free' : 'Starter'} tier: {getCorrectApiLimit(user.subscriptionTier) - user.apiCallsCount} validations remaining
                     </div>
                   )}
                   {adminMode && (
@@ -1720,11 +1823,11 @@ function App() {
                   )}
                 </div>
                 <textarea
-                  className={`batch-input ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
-                  placeholder={!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Upgrade to continue batch validation...' : adminMode ? 'Admin: Enter unlimited emails for batch validation...' : 'Enter email addresses (one per line, comma-separated, or any format)...'}
+                  className={`batch-input ${!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'disabled' : ''}`}
+                  placeholder={!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'Upgrade to continue batch validation...' : adminMode ? 'Admin: Enter unlimited emails for batch validation...' : 'Enter email addresses (one per line, comma-separated, or any format)...'}
                   value={batchEmails}
                   onChange={(e) => setBatchEmails(e.target.value)}
-                  disabled={loading || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
+                  disabled={loading || (!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier))}
                   rows={10}
                 />
               </>
@@ -1774,11 +1877,11 @@ function App() {
             )}
 
             <button
-              className={`validate-btn ${!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'disabled' : ''}`}
+              className={`validate-btn ${!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'disabled' : ''}`}
               onClick={validateBatch}
-              disabled={loading || (!batchEmails.trim()) || (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit)}
+              disabled={loading || (!batchEmails.trim()) || (!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier))}
             >
-              {!adminMode && user && user.apiCallsCount >= user.apiCallsLimit ? 'Limit Reached - Upgrade Required' : loading ? 'Validating...' : adminMode ? 'Validate Batch (Admin - Unlimited)' : 'Validate Batch'}
+              {!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'Limit Reached - Upgrade Required' : loading ? 'Validating...' : adminMode ? 'Validate Batch (Admin - Unlimited)' : 'Validate Batch'}
             </button>
           </div>
         )}

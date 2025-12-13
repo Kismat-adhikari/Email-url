@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FiUsers, FiActivity, FiMail, FiShield, FiLogOut, FiRefreshCw,
-  FiTrendingUp, FiCheckCircle, FiClock, FiBarChart2, FiSettings, FiSearch
+  FiTrendingUp, FiCheckCircle, FiClock, FiBarChart2, FiSettings, FiSearch, FiPlus
 } from 'react-icons/fi';
 import './AdminDashboard.css';
+import AdminUserCreation from './AdminUserCreation';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -27,6 +28,9 @@ const AdminDashboard = () => {
     userName: '',
     reason: ''
   });
+  
+  // User creation modal state
+  const [userCreationModal, setUserCreationModal] = useState(false);
 
   const apiCall = useCallback(async (endpoint, options = {}) => {
     const token = localStorage.getItem('adminToken');
@@ -129,6 +133,13 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to unsuspend user:', error);
     }
+  };
+
+  const handleUserCreated = (newUser) => {
+    console.log('New user created:', newUser);
+    // Refresh user list and dashboard data
+    loadUsers();
+    loadDashboardData();
   };
 
   if (loading) {
@@ -312,6 +323,17 @@ const AdminDashboard = () => {
           <div className="admin-users-content">
             <div className="admin-page-header">
               <h1>User Management</h1>
+              <div className="admin-page-actions">
+                <button 
+                  className="admin-create-user-btn"
+                  onClick={() => setUserCreationModal(true)}
+                >
+                  <FiPlus /> Create User
+                </button>
+              </div>
+            </div>
+            
+            <div className="admin-user-filters-section">
               <div className="admin-user-filters">
                 <div className="admin-search-box">
                   <FiSearch />
@@ -328,6 +350,7 @@ const AdminDashboard = () => {
                 >
                   <option value="">All Tiers</option>
                   <option value="free">Free</option>
+                  <option value="starter">Starter</option>
                   <option value="pro">Pro</option>
                   <option value="enterprise">Enterprise</option>
                 </select>
@@ -517,6 +540,13 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* User Creation Modal */}
+      <AdminUserCreation
+        isOpen={userCreationModal}
+        onClose={() => setUserCreationModal(false)}
+        onUserCreated={handleUserCreated}
+      />
     </div>
   );
 };

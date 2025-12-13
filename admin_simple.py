@@ -40,6 +40,34 @@ class SimpleAdminSystem:
         self.token_expiry = timedelta(hours=8)  # 8 hour sessions
         self.storage = get_storage()
         
+        # Tier configuration
+        self.tier_configs = {
+            'free': {
+                'name': 'free',
+                'api_calls_limit': 10,
+                'features': {
+                    'batch_validation': False,
+                    'email_sending': False
+                }
+            },
+            'starter': {
+                'name': 'starter', 
+                'api_calls_limit': 10000,
+                'features': {
+                    'batch_validation': True,
+                    'email_sending': False
+                }
+            },
+            'pro': {
+                'name': 'pro',
+                'api_calls_limit': 10000000,  # 10 million
+                'features': {
+                    'batch_validation': True,
+                    'email_sending': True
+                }
+            }
+        }
+        
         # In-memory activity log (in production, this would be in database)
         self.activity_log = []
         
@@ -344,6 +372,132 @@ class SimpleAdminSystem:
             # Fallback to logging if database update fails
             logger.info(f"FALLBACK: User {user_id} marked for unsuspension")
             return True  # Return true so UI updates
+    
+    def create_user(self, email, password, first_name, last_name, subscription_tier, admin_id):
+        """Create a new user account with tier assignment"""
+        try:
+            # Validate tier
+            if subscription_tier not in self.tier_configs:
+                raise ValueError(f"Invalid subscription tier: {subscription_tier}")
+            
+            # Get tier configuration
+            tier_config = self.tier_configs[subscription_tier]
+            
+            # Check if user already exists
+            existing_user = self.storage.get_user_by_email(email)
+            if existing_user:
+                raise ValueError("Email already registered")
+            
+            # Hash password
+            password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            
+            # Generate API key
+            import secrets
+            api_key = f"ev_{secrets.token_hex(32)}"
+            
+            # Create user data with tier configuration
+            user_data = {
+                'email': email.lower().strip(),
+                'password_hash': password_hash,
+                'first_name': first_name.strip(),
+                'last_name': last_name.strip(),
+                'api_key': api_key,
+                'subscription_tier': tier_config['name'],
+                'api_calls_count': 0,
+                'api_calls_limit': tier_config['api_calls_limit'],
+                'is_verified': False,
+                'is_active': True,
+                'is_suspended': False
+            }
+            
+            # Create user in database
+            user = self.storage.create_user(user_data)
+            
+            # Log activity
+            self.log_activity(
+                'user_created',
+                'user',
+                user['id'],
+                f"{first_name} {last_name}".strip() or email,
+                f"Account created by admin with {subscription_tier} tier ({tier_config['api_calls_limit']} API calls)"
+            )
+            
+            logger.info(f"✅ User created by admin {admin_id}: {email} ({subscription_tier} tier)")
+            
+            # Return user data (excluding sensitive info)
+            return {
+                'id': user['id'],
+                'email': user['email'],
+                'first_name': user['first_name'],
+                'last_name': user['last_name'],
+                'subscription_tier': user['subscription_tier'],
+                'api_calls_limit': user['api_calls_limit'],
+                'api_calls_count': user['api_calls_count'],
+                'created_at': user['created_at'],
+                'is_active': user['is_active']
+            }
+            
+        except ValueError as e:
+            logger.error(f"❌ User creation validation error: {e}")
+            raise e
+        except Exception as e:
+            logger.error(f"❌ User creation error: {e}")
+            raise Exception("Failed to create user account")
+    
+    def get_user_stats(self):
+        """Get user statistics by tier for dashboard"""
+        try:
+            # Get all users
+            users_result = self.storage.client.table('users').select('subscription_tier, is_active, is_suspended, created_at').execute()
+            users = users_result.data if users_result.data else []
+            
+            # Calculate statistics
+            stats = {
+                'total_users': len(users),
+                'by_tier': {
+                    'free': 0,
+                    'starter': 0,
+                    'pro': 0,
+                    'enterprise': 0
+                },
+                'by_status': {
+                    'active': 0,
+                    'suspended': 0,
+                    'inactive': 0
+                },
+                'created_today': 0
+            }
+            
+            today = datetime.now().date()
+            
+            for user in users:
+                # Count by tier
+                tier = user.get('subscription_tier', 'free')
+                if tier in stats['by_tier']:
+                    stats['by_tier'][tier] += 1
+                
+                # Count by status
+                if user.get('is_suspended', False):
+                    stats['by_status']['suspended'] += 1
+                elif user.get('is_active', True):
+                    stats['by_status']['active'] += 1
+                else:
+                    stats['by_status']['inactive'] += 1
+                
+                # Count created today
+                if user.get('created_at'):
+                    try:
+                        created_date = datetime.fromisoformat(user['created_at'].replace('Z', '+00:00')).date()
+                        if created_date == today:
+                            stats['created_today'] += 1
+                    except:
+                        pass
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Get user stats error: {e}")
+            return None
 
 # Global admin system instance
 admin_system = SimpleAdminSystem()
@@ -475,6 +629,101 @@ def register_admin_routes(app):
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Failed to unsuspend user'}), 500
+    
+    @app.route('/admin/users/create', methods=['POST'])
+    @admin_required
+    def create_user():
+        """Create new user account with tier assignment"""
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({
+                    'error': 'Missing request data',
+                    'message': 'Request body is required'
+                }), 400
+            
+            # Validate required fields
+            required_fields = ['email', 'password', 'firstName', 'lastName', 'subscriptionTier']
+            for field in required_fields:
+                if not data.get(field):
+                    return jsonify({
+                        'error': f'Missing {field}',
+                        'message': f'{field} is required'
+                    }), 400
+            
+            email = data['email'].strip()
+            password = data['password']
+            first_name = data['firstName'].strip()
+            last_name = data['lastName'].strip()
+            subscription_tier = data['subscriptionTier'].strip().lower()
+            
+            # Validate email format
+            import re
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email):
+                return jsonify({
+                    'error': 'Invalid email format',
+                    'message': 'Please provide a valid email address'
+                }), 400
+            
+            # Validate password strength
+            if len(password) < 8:
+                return jsonify({
+                    'error': 'Weak password',
+                    'message': 'Password must be at least 8 characters long'
+                }), 400
+            
+            # Validate subscription tier
+            if subscription_tier not in admin_system.tier_configs:
+                return jsonify({
+                    'error': 'Invalid subscription tier',
+                    'message': f'Tier must be one of: {", ".join(admin_system.tier_configs.keys())}'
+                }), 400
+            
+            # Create user
+            user = admin_system.create_user(
+                email=email,
+                password=password,
+                first_name=first_name,
+                last_name=last_name,
+                subscription_tier=subscription_tier,
+                admin_id=g.admin['id']
+            )
+            
+            logger.info(f"✅ User created successfully by admin {g.admin['email']}: {email}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'User account created successfully',
+                'user': user
+            }), 201
+            
+        except ValueError as e:
+            return jsonify({
+                'error': 'Validation error',
+                'message': str(e)
+            }), 400
+        except Exception as e:
+            logger.error(f"❌ User creation failed: {str(e)}")
+            return jsonify({
+                'error': 'User creation failed',
+                'message': 'An error occurred while creating the user account'
+            }), 500
+    
+    @app.route('/admin/users/stats', methods=['GET'])
+    @admin_required
+    def get_user_stats():
+        """Get user statistics by tier for dashboard"""
+        try:
+            stats = admin_system.get_user_stats()
+            if stats:
+                return jsonify(stats)
+            else:
+                return jsonify({'error': 'Failed to load user statistics'}), 500
+        except Exception as e:
+            logger.error(f"Get user stats error: {e}")
+            return jsonify({'error': 'Failed to load user statistics'}), 500
     
     @app.route('/api/auth/check-status', methods=['GET'])
     @auth_required

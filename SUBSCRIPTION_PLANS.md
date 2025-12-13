@@ -16,11 +16,30 @@
 #### 🆓 **Free Tier (Signed Up)**
 - **Price**: Free
 - **Email Validation**: 10 emails maximum
-- **Batch Validation**: ❌ Disabled (PRO feature)
-- **Email Sending**: ❌ Disabled (PRO feature)
+- **Batch Validation**: ❌ Disabled (Starter+ feature)
+- **Email Sending**: ❌ Disabled (Pro feature)
 - **History Storage**: Database (permanent)
 - **Advanced Features**: Full validation suite
 - **Support**: Email support
+
+#### 🚀 **Starter Tier**
+- **Price**: $4.99/month (planned)
+- **Email Validation**: 10,000 emails maximum
+- **Batch Validation**: ✅ Enabled (up to 1,000 per batch)
+- **Email Sending**: ❌ Disabled (Pro feature)
+- **History Storage**: Database + CSV export
+- **Advanced Features**: Full validation + batch processing
+- **Support**: Priority email support
+
+#### 💎 **Pro Tier**
+- **Price**: $19.99/month (planned)
+- **Email Validation**: 10,000,000 emails maximum (10 million)
+- **Batch Validation**: ✅ Full access (unlimited batch size)
+- **Email Sending**: ✅ Full access (with SendGrid integration)
+- **History Storage**: Database + all export formats
+- **Advanced Features**: All features + email campaigns
+- **API Access**: Full API access
+- **Support**: Priority support + phone
 
 #### 🛡️ **Admin (Internal Use)**
 - **Price**: N/A (Internal)
@@ -33,17 +52,7 @@
 
 ---
 
-## 🚀 **Planned Future Tiers**
-
-### 💼 **Pro Plan** (Not Yet Implemented)
-- **Price**: $9.99/month
-- **Email Validation**: 1,000 emails/month
-- **Batch Validation**: ✅ Up to 500 emails per batch
-- **Email Sending**: ✅ Up to 1,000 emails/month
-- **History Storage**: Database + export options
-- **Advanced Features**: All validation + analytics
-- **API Access**: Basic API (100 requests/day)
-- **Support**: Priority email support
+## 🚀 **Future Enterprise Tiers**
 
 ### 🏢 **Business Plan** (Not Yet Implemented)
 - **Price**: $29.99/month

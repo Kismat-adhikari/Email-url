@@ -1834,6 +1834,284 @@ def validate_batch_endpoint():
         }), 500
 
 
+@app.route('/api/validate/batch/authenticated', methods=['POST'])
+@rate_limit
+def validate_batch_authenticated():
+    """
+    Batch validation for authenticated users (non-streaming, reliable).
+    
+    Headers:
+        Authorization: Bearer <jwt_token> (required)
+    
+    Request body:
+        {
+            "emails": ["user1@example.com", "user2@test.com"],
+            "advanced": true,
+            "remove_duplicates": true
+        }
+    
+    Response:
+        {
+            "results": [...],
+            "total": 100,
+            "valid_count": 85,
+            "invalid_count": 15,
+            "processing_time": 2.5,
+            "domain_stats": {...}
+        }
+    """
+    start_time = time.time()
+    
+    try:
+        # Check if user is authenticated (required for this endpoint)
+        user_id = None
+        authenticated_user = None
+        try:
+            auth_header = request.headers.get('Authorization')
+            if not auth_header or not auth_header.startswith('Bearer '):
+                return jsonify({
+                    'error': 'Authentication required',
+                    'message': 'This endpoint requires login. Please authenticate first.'
+                }), 401
+            
+            token = auth_header.split(' ')[1]
+            payload = verify_jwt_token(token)
+            user_id = payload.get('user_id')
+            
+            # Get user details for API limiting
+            storage = get_storage()
+            authenticated_user = storage.get_user_by_id(user_id)
+            if not authenticated_user:
+                return jsonify({
+                    'error': 'User not found',
+                    'message': 'User account no longer exists'
+                }), 404
+            
+            # Check if user is suspended (IMMEDIATE CHECK)
+            if authenticated_user.get('is_suspended', False):
+                suspension_reason = authenticated_user.get('suspension_reason', 'No reason provided')
+                return jsonify({
+                    'error': 'Account suspended',
+                    'message': f'Your account has been suspended. Reason: {suspension_reason}',
+                    'suspension_reason': suspension_reason,
+                    'suspended_at': authenticated_user.get('suspended_at'),
+                    'suspended': True
+                }), 403
+                
+        except ValueError as e:
+            return jsonify({
+                'error': 'Invalid authentication',
+                'message': str(e)
+            }), 401
+        
+        data = request.get_json()
+        
+        if not data or 'emails' not in data:
+            return jsonify({
+                'error': 'Missing emails parameter',
+                'message': 'Please provide a list of email addresses'
+            }), 400
+        
+        emails = data.get('emails', [])
+        advanced = data.get('advanced', True)
+        remove_duplicates = data.get('remove_duplicates', True)
+        
+        if not emails:
+            return jsonify({
+                'error': 'Empty email list',
+                'message': 'Please provide at least one email address'
+            }), 400
+        
+        # Check API limits and subscription tier for authenticated users (bypass for admins)
+        is_admin = is_admin_request()
+        if not is_admin:
+            # Block batch validation for free tier users only (starter+ can use batch validation)
+            if authenticated_user.get('subscription_tier', 'free') == 'free':
+                return jsonify({
+                    'error': 'Feature not available',
+                    'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter to access batch processing!',
+                    'subscription_tier': authenticated_user.get('subscription_tier', 'free'),
+                    'upgrade_required': True
+                }), 403
+            
+            if authenticated_user['api_calls_count'] >= authenticated_user['api_calls_limit']:
+                return jsonify({
+                    'error': 'API limit exceeded',
+                    'message': f'You have reached your limit of {authenticated_user["api_calls_limit"]} API calls. Upgrade your plan for more.',
+                    'current_usage': authenticated_user['api_calls_count'],
+                    'limit': authenticated_user['api_calls_limit']
+                }), 429
+            
+            # Check if batch would exceed remaining limit
+            remaining_calls = authenticated_user['api_calls_limit'] - authenticated_user['api_calls_count']
+            if len(emails) > remaining_calls:
+                return jsonify({
+                    'error': 'Batch size exceeds remaining API calls',
+                    'message': f'This batch contains {len(emails)} emails, but you only have {remaining_calls} API calls remaining. Please reduce the batch size or upgrade your plan.',
+                    'current_usage': authenticated_user['api_calls_count'],
+                    'limit': authenticated_user['api_calls_limit'],
+                    'batch_size': len(emails),
+                    'remaining_calls': remaining_calls
+                }), 429
+        
+        # Track original count for duplicate removal
+        original_count = len(emails)
+        
+        # Remove duplicates if requested (case-insensitive)
+        if remove_duplicates:
+            emails_lower = [email.lower().strip() for email in emails]
+            unique_emails = []
+            seen = set()
+            for email in emails:
+                email_lower = email.lower().strip()
+                if email_lower not in seen:
+                    seen.add(email_lower)
+                    unique_emails.append(email)
+            emails = unique_emails
+            duplicates_removed = original_count - len(emails)
+            logger.info(f"Authenticated batch: Removed {duplicates_removed} duplicates")
+        else:
+            duplicates_removed = 0
+        
+        logger.info(f"Authenticated batch validation: {len(emails)} emails (advanced: {advanced}) for user {user_id}")
+        
+        # Process all emails
+        results = []
+        valid_count = 0
+        invalid_count = 0
+        
+        for email in emails:
+            try:
+                # Clean email
+                email = email.strip()
+                
+                # Validate email format
+                if not validate_email_format(email):
+                    result = {
+                        'email': email,
+                        'valid': False,
+                        'reason': 'Invalid email format',
+                        'checks': {'syntax': False}
+                    }
+                else:
+                    # Perform validation
+                    if advanced:
+                        try:
+                            result = validate_email_advanced(email)
+                        except Exception as e:
+                            logger.error(f"Advanced validation error for {email}: {str(e)}")
+                            result = {
+                                'email': email,
+                                'valid': False,
+                                'reason': f'Validation error: {str(e)}',
+                                'checks': {'syntax': True}
+                            }
+                        
+                        # Add enrichment
+                        enrichment_data = enricher.enrich_email(email)
+                        if enrichment_data:
+                            result['enrichment'] = enrichment_data
+                        
+                        # Add deliverability score
+                        deliverability = calculate_deliverability_score(email, result)
+                        result['deliverability'] = deliverability
+                        
+                        # Add pattern analysis
+                        pattern = analyze_email_pattern(email)
+                        if pattern:
+                            result['pattern_analysis'] = pattern
+                        
+                        # Add risk check
+                        if '@' in email:
+                            domain = email.split('@')[1]
+                            risk = comprehensive_risk_check(email, domain)
+                            result['risk_check'] = risk
+                        
+                        # Add bounce check (integrated)
+                        try:
+                            from email_sender import get_email_sender
+                            sender = get_email_sender()
+                            bounce_check = sender.check_bounce_history(email)
+                            result['bounce_check'] = bounce_check
+                        except Exception as e:
+                            logger.error(f"Bounce check failed: {e}")
+                            result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
+                        
+                        # Add status
+                        status = determine_email_status(result)
+                        result['status'] = status
+                    else:
+                        # Basic validation
+                        result = {'email': email, 'valid': validate_email_format(email)}
+                
+                results.append(result)
+                
+                if result.get('valid'):
+                    valid_count += 1
+                else:
+                    invalid_count += 1
+                
+                # Store in database
+                try:
+                    storage.create_record({
+                        'anon_user_id': None,  # Not anonymous
+                        'user_id': user_id,
+                        'email': result.get('email'),
+                        'valid': result.get('valid', False),
+                        'confidence_score': result.get('confidence_score', 0),
+                        'checks': result.get('checks', {}),
+                        'is_disposable': result.get('checks', {}).get('is_disposable', False),
+                        'is_role_based': result.get('checks', {}).get('is_role_based', False)
+                    })
+                    
+                    # Increment API usage for authenticated users (skip for admins)
+                    if not is_admin:
+                        try:
+                            storage.increment_api_usage(user_id, 1)
+                        except Exception as e:
+                            logger.error(f"Failed to increment API usage: {str(e)}")
+                            
+                except Exception as e:
+                    logger.error(f"Failed to store validation: {str(e)}")
+                    
+            except Exception as e:
+                logger.error(f"Authenticated batch validation error for {email}: {str(e)}")
+                results.append({
+                    'email': email,
+                    'valid': False,
+                    'error': str(e),
+                    'reason': 'Validation failed'
+                })
+                invalid_count += 1
+        
+        processing_time = round(time.time() - start_time, 3)
+        
+        # Calculate domain statistics
+        domain_stats = calculate_domain_stats(results)
+        
+        response = {
+            'results': results,
+            'total': len(emails),
+            'original_count': original_count,
+            'duplicates_removed': duplicates_removed,
+            'valid_count': valid_count,
+            'invalid_count': invalid_count,
+            'processing_time': processing_time,
+            'domain_stats': domain_stats
+        }
+        
+        logger.info(f"Authenticated batch validation completed: {len(emails)} emails ({valid_count} valid, {invalid_count} invalid) for user {user_id}")
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"Authenticated batch validation failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Batch validation failed',
+            'message': str(e)
+        }), 500
+
+
 @app.route('/api/validate/batch/stream', methods=['POST'])
 @rate_limit
 def validate_batch_stream():
@@ -1913,11 +2191,11 @@ def validate_batch_stream():
         # Check API limits and subscription tier for authenticated users BEFORE processing (bypass for admins)
         is_admin = is_admin_request()
         if authenticated_user and not is_admin:
-            # Block batch validation for free tier users
+            # Block batch validation for free tier users only (starter+ can use batch validation)
             if authenticated_user.get('subscription_tier', 'free') == 'free':
                 return jsonify({
                     'error': 'Feature not available',
-                    'message': 'Batch validation is only available for paid plans. Upgrade to Pro to access batch processing!',
+                    'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter to access batch processing!',
                     'subscription_tier': authenticated_user.get('subscription_tier', 'free'),
                     'upgrade_required': True
                 }), 403
