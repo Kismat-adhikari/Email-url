@@ -121,6 +121,10 @@ function App() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showBatchResults, setShowBatchResults] = useState(true);
   
+  // User status cache to avoid frequent API calls
+  const [lastStatusCheck, setLastStatusCheck] = useState(0);
+  const STATUS_CHECK_INTERVAL = 30000; // 30 seconds
+  
   const [history, setHistory] = useState([]);
   const [filteredHistory, setFilteredHistory] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -281,11 +285,18 @@ function App() {
   }, [api, authToken, user, handleLogout]); // Run once on app load
 
   // Helper function for immediate suspension checking
-  const checkUserStatus = useCallback(async () => {
+  const checkUserStatus = useCallback(async (forceCheck = false) => {
     if (!user || !authToken) return true; // Not logged in, no need to check
+    
+    // Skip check if recently checked (unless forced)
+    const now = Date.now();
+    if (!forceCheck && (now - lastStatusCheck) < STATUS_CHECK_INTERVAL) {
+      return true; // Assume user is still active
+    }
     
     try {
       await api.get('/api/auth/check-status');
+      setLastStatusCheck(now);
       return true; // User is still active
     } catch (error) {
       if (error.response?.status === 403 && error.response?.data?.suspended) {
@@ -299,9 +310,10 @@ function App() {
         handleLogout();
         return false; // User is suspended
       }
+      setLastStatusCheck(now);
       return true; // Other errors, assume user is still active
     }
-  }, [user, authToken, api, handleLogout]);
+  }, [user, authToken, api, handleLogout, lastStatusCheck]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -357,8 +369,8 @@ function App() {
   useEffect(() => {
     if (!user || !authToken) return;
 
-    // Check status every 2 seconds for instant detection
-    const statusInterval = setInterval(checkUserStatus, 2000);
+    // Check status every 30 seconds for suspension detection
+    const statusInterval = setInterval(() => checkUserStatus(true), 30000);
 
     // Cleanup interval on unmount
     return () => clearInterval(statusInterval);
@@ -536,20 +548,17 @@ function App() {
       return;
     }
 
-    // Immediate suspension check before any action
-    if (user && !(await checkUserStatus())) {
-      return; // User is suspended, checkUserStatus handles logout
-    }
+    // Show loading immediately for better UX
+    setLoading(true);
+    setError(null);
+    setResult(null);
 
     // Check if authenticated user has reached their limit (skip for admin mode)
     if (!adminMode && user && user.apiCallsCount >= user.apiCallsLimit) {
       setError(`You've reached your limit of ${user.apiCallsLimit} API calls. ${user.subscriptionTier === 'free' ? 'Upgrade to a paid plan for unlimited validations!' : 'Please contact support to increase your limit.'}`);
+      setLoading(false);
       return;
     }
-
-    setLoading(true);
-    setError(null);
-    setResult(null);
 
     try {
       // Choose endpoint based on mode
