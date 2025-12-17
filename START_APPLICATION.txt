@@ -1,0 +1,106 @@
+================================================================================
+EMAIL VALIDATOR - STARTUP INSTRUCTIONS
+================================================================================
+
+QUICK START (Windows):
+----------------------
+
+1. START BACKEND (Python Flask Server):
+   Open Command Prompt or PowerShell in the project root folder and run:
+   
+   python app_anon_history.py
+   
+   ✓ Backend will start on: http://localhost:5000
+   ✓ Wait for message: "Running on http://127.0.0.1:5000"
+
+
+2. START FRONTEND (React Application):
+   Open a NEW Command Prompt or PowerShell window
+   Navigate to the frontend folder:
+   
+   cd frontend
+   npm start
+   
+   ✓ Frontend will start on: http://localhost:3000
+   ✓ Your browser should open automatically
+   ✓ If not, manually open: http://localhost:3000
+
+
+IMPORTANT NOTES:
+----------------
+• Keep BOTH terminal windows open while using the application
+• Backend MUST be running before frontend for full functionality
+• If you see "Failed to fetch" errors, check that backend is running
+• Press Ctrl+C in each terminal to stop the servers
+
+
+TROUBLESHOOTING:
+----------------
+
+Problem: "python: command not found"
+Solution: Make sure Python is installed and added to PATH
+         Try: python3 app_anon_history.py
+
+Problem: "npm: command not found"
+Solution: Install Node.js from https://nodejs.org/
+
+Problem: Backend won't start
+Solution: Install dependencies first:
+         pip install -r requirements.txt
+
+Problem: Frontend won't start
+Solution: Install dependencies first:
+         cd frontend
+         npm install
+
+Problem: Port already in use
+Solution: Kill the process using the port or change port in code
+         Backend: Change port in app_anon_history.py (default: 5000)
+         Frontend: Change port in package.json (default: 3000)
+
+
+FEATURES AVAILABLE:
+-------------------
+✓ Real-time batch email validation with streaming results
+✓ Paginated results view (30 emails per page)
+✓ Sequential numbering (#1, #2, #3, etc.)
+✓ Filter by status (All/Valid/Invalid)
+✓ Sort by Order/Confidence/Email
+✓ Anonymous users: True streaming validation
+✓ Authenticated users: Progressive display with simulated streaming
+✓ Admin users: Unlimited validation access
+
+
+USER TYPES:
+-----------
+1. Anonymous Users:
+   - No login required
+   - Real-time streaming validation
+   - Results saved in browser localStorage
+   - Limited to 2 single validations (batch unlimited)
+
+2. Authenticated Users:
+   - Login required
+   - Results saved to database
+   - API limits based on subscription tier:
+     * Free: 10 validations per day
+     * Starter: 10,000 validations per month
+     * Pro: 10,000,000 lifetime validations
+
+3. Admin Users:
+   - Admin login required
+   - Unlimited validations
+   - Access to admin dashboard
+   - Can manage users and view analytics
+
+
+ENDPOINTS USED:
+---------------
+Anonymous:      POST /api/validate/batch/local (with X-User-ID header) - Real-time streaming
+Authenticated:  POST /api/validate/batch/stream (with Authorization header) - Real-time streaming
+Admin:          POST /api/admin/validate/batch (with Authorization header) - Bulk processing
+
+
+================================================================================
+For more information, check README.md or contact support
+================================================================================

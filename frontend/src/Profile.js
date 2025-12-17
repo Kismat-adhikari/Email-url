@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUser, FiMail, FiCalendar, FiKey, FiSave, FiEdit3, FiActivity, FiAward, FiArrowLeft, FiLogOut, FiMoon, FiSun, FiZap } from 'react-icons/fi';
 import './Profile.css';
-import { formatApiUsage, formatApiLimit, getCorrectApiLimit, getTierDisplayName, getUsagePercentage, formatApiUsageWithPeriod } from './utils/apiUtils';
+import { formatApiLimit, getCorrectApiLimit, getTierDisplayName, getUsagePercentage, formatApiUsageWithPeriod } from './utils/apiUtils';
 
 const Profile = () => {
   const navigate = useNavigate();

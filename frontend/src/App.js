@@ -12,7 +12,8 @@ import {
   FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
 } from 'react-icons/fi';
 import EmailComposer from './EmailComposer';
-import { formatApiUsage, getCorrectApiLimit, getUsagePercentage, formatApiLimit, formatApiUsageWithPeriod, getLimitType } from './utils/apiUtils';
+import BatchResultsPaginated from './BatchResultsPaginated';
+import { getCorrectApiLimit, formatApiLimit, formatApiUsageWithPeriod } from './utils/apiUtils';
 
 
 // ============================================================================
@@ -24,7 +25,7 @@ function generateUUID() {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : ((r & 0x3) | 0x8);
     return v.toString(16);
-  });
+  });One
 }
 
 function getAnonUserId() {
@@ -42,7 +43,8 @@ function getAnonUserId() {
 // Local storage history management for anonymous users
 function saveValidationToLocalStorage(validationResult) {
   try {
-    const history = JSON.parse(localStorage.getItem('validation_history') || '[]');
+    const historyData = localStorage.getItem('validation_history');
+    const history = historyData && historyData !== 'undefined' ? JSON.parse(historyData) : [];
     
     // Add new validation with timestamp
     const record = {
@@ -81,7 +83,8 @@ function saveValidationToLocalStorage(validationResult) {
 
 function getLocalStorageHistory() {
   try {
-    return JSON.parse(localStorage.getItem('validation_history') || '[]');
+    const historyData = localStorage.getItem('validation_history');
+    return historyData && historyData !== 'undefined' ? JSON.parse(historyData) : [];
   } catch (error) {
     console.error('Failed to load from localStorage:', error);
     return [];
@@ -121,6 +124,7 @@ function App() {
   const [shareLink, setShareLink] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showBatchResults, setShowBatchResults] = useState(true);
+  const [batchResultsView, setBatchResultsView] = useState('paginated'); // 'paginated' or 'list'
   
   // User status cache to avoid frequent API calls
   const [lastStatusCheck, setLastStatusCheck] = useState(0);
@@ -144,17 +148,25 @@ function App() {
   
   // Authentication state
   const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    try {
+      const savedUser = localStorage.getItem('user');
+      return savedUser && savedUser !== 'undefined' ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
   });
   const [authToken, setAuthToken] = useState(() => {
-    return localStorage.getItem('authToken');
+    return localStorage.getItem('authToken') || null;
   });
   
   const [anonUserId] = useState(() => getAnonUserId());
   const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
-    return saved ? JSON.parse(saved) : false;
+    try {
+      const saved = localStorage.getItem('darkMode');
+      return saved && saved !== 'undefined' ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
   });
 
   // Admin mode detection
@@ -169,10 +181,15 @@ function App() {
     return token;
   });
   const [adminUser, setAdminUser] = useState(() => {
-    const savedAdminUser = localStorage.getItem('adminUser');
-    const user = savedAdminUser ? JSON.parse(savedAdminUser) : null;
-    console.log('👤 Initial admin user:', user);
-    return user;
+    try {
+      const savedAdminUser = localStorage.getItem('adminUser');
+      const user = savedAdminUser && savedAdminUser !== 'undefined' ? JSON.parse(savedAdminUser) : null;
+      console.log('👤 Initial admin user:', user);
+      return user;
+    } catch {
+      console.log('👤 Failed to parse admin user from localStorage');
+      return null;
+    }
   });
 
   // Listen for admin mode changes (when opened from admin dashboard)
@@ -190,7 +207,7 @@ function App() {
         console.log('🔑 Admin token changed:', token ? `${token.substring(0, 20)}...` : 'null');
         setAdminToken(token);
       }
-      if (user) {
+      if (user && user !== 'undefined') {
         try {
           const parsedUser = JSON.parse(user);
           if (JSON.stringify(parsedUser) !== JSON.stringify(adminUser)) {
@@ -199,6 +216,7 @@ function App() {
           }
         } catch (e) {
           console.error('Failed to parse admin user:', e);
+          setAdminUser(null);
         }
       } else if (adminUser) {
         console.log('👤 Admin user cleared');
@@ -450,6 +468,30 @@ function App() {
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
+  };
+
+  // Helper functions for confidence scoring
+  const getConfidenceColor = (score) => {
+    if (score >= 90) return '#10b981'; // Green
+    if (score >= 70) return '#f59e0b'; // Yellow
+    if (score >= 50) return '#ef4444'; // Red
+    return '#6b7280'; // Gray
+  };
+
+  const getConfidenceTextColor = (score) => {
+    if (score >= 90) return '#059669';
+    if (score >= 70) return '#d97706';
+    if (score >= 50) return '#dc2626';
+    return '#4b5563';
+  };
+
+  const getConfidenceLabel = (score) => {
+    if (score >= 90) return 'Excellent';
+    if (score >= 80) return 'Very Good';
+    if (score >= 70) return 'Good';
+    if (score >= 60) return 'Fair';
+    if (score >= 50) return 'Poor';
+    return 'Very Poor';
   };
 
   const exportToCSV = () => {
@@ -857,131 +899,99 @@ function App() {
     try {
       // Use different endpoint based on mode
       let endpoint;
+      
+      // Ensure anonUserId is always available
+      const currentAnonUserId = anonUserId || getAnonUserId();
+      
       const headers = {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-User-ID': currentAnonUserId // Always include X-User-ID for backend tracking
       };
       
       if (adminMode) {
-        // Admin mode: Use regular JSON endpoint (not streaming)
+        // Admin mode: Use admin endpoint (non-streaming, unlimited)
         endpoint = '/api/admin/validate/batch';
         headers['Authorization'] = `Bearer ${adminToken}`;
+        delete headers['X-User-ID']; // Admin doesn't need X-User-ID
         
         console.log('🛡️ Admin batch validation:', {
           adminMode,
-          adminToken: adminToken ? `${adminToken.substring(0, 20)}...` : 'null',
           endpoint,
           emailCount: emails.length
         });
+      } else if (user) {
+        // Authenticated users: Use STREAMING endpoint with auth token
+        endpoint = '/api/validate/batch/stream';
+        headers['Authorization'] = `Bearer ${authToken}`;
+        // Keep X-User-ID for backend compatibility
         
+        console.log('🔐 Authenticated batch validation (streaming):', {
+          user: user.email,
+          endpoint,
+          emailCount: emails.length
+        });
+      } else {
+        // Anonymous users: Use local streaming endpoint
+        endpoint = '/api/validate/batch/local';
+        // Keep X-User-ID for anonymous users
+        
+        console.log('👤 Anonymous batch validation (streaming):', {
+          endpoint,
+          emailCount: emails.length,
+          anonUserId: currentAnonUserId
+        });
+      }
+
+        // Debug: Log headers being sent
+        console.log('📤 Sending batch validation request:', {
+          endpoint: `${API_URL}${endpoint}`,
+          headers: headers,
+          emailCount: emails.length
+        });
+
         const response = await fetch(`${API_URL}${endpoint}`, {
           method: 'POST',
           headers: headers,
           body: JSON.stringify({
             emails,
-            advanced: mode === 'advanced'
+            advanced: mode === 'advanced',
+            remove_duplicates: removeDuplicates
           })
         });
 
+        console.log('📥 Response status:', response.status, response.statusText);
+
         if (!response.ok) {
-          const errorData = await response.json();
-          console.error('❌ Admin batch validation failed:', errorData);
-          throw new Error(errorData.message || 'Admin batch validation failed');
-        }
-
-        const data = await response.json();
-        
-        // Simulate progress for admin (instant completion)
-        setProgress({
-          current: data.total,
-          total: data.total,
-          percentage: 100,
-          eta: 0,
-          speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : data.total
-        });
-
-        // Set final results with domain stats
-        setBatchResults({
-          results: data.results,
-          valid_count: data.valid_count,
-          invalid_count: data.invalid_count,
-          total: data.total,
-          original_count: data.original_count,
-          duplicates_removed: data.duplicates_removed,
-          processing_time: data.processing_time,
-          admin_validation: true,
-          domain_stats: data.domain_stats || null
-        });
-
-      } else {
-        // Regular users: Use appropriate endpoint
-        if (user) {
-          endpoint = '/api/validate/batch/authenticated'; // Regular authenticated endpoint (non-streaming, reliable)
-          headers['Authorization'] = `Bearer ${authToken}`;
-        } else {
-          endpoint = '/api/validate/batch/local'; // Anonymous endpoint
-          headers['X-User-ID'] = anonUserId;
-        }
-
-        if (user) {
-          // Authenticated users: Use non-streaming endpoint (reliable)
-          const response = await fetch(`${API_URL}${endpoint}`, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({
-              emails,
-              advanced: mode === 'advanced',
-              remove_duplicates: removeDuplicates
-            })
-          });
-
-          if (!response.ok) {
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          try {
             const errorData = await response.json();
-            console.error('❌ Authenticated batch validation failed:', errorData);
-            throw new Error(errorData.message || 'Batch validation failed');
+            errorMessage = errorData.message || errorMessage;
+          } catch (e) {
+            console.log('Could not parse error response as JSON');
           }
+          throw new Error(errorMessage);
+        }
 
-          const data = await response.json();
-          
-          // Simulate progress for authenticated users (instant completion)
-          setProgress({
-            current: data.total,
-            total: data.total,
-            percentage: 100,
-            eta: 0,
-            speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : data.total
-          });
+        // Check if this is a streaming response (anonymous and authenticated users, but not admin)
+        const isStreaming = !adminMode;
 
-          // Set final results with domain stats
-          setBatchResults({
-            results: data.results,
-            valid_count: data.valid_count,
-            invalid_count: data.invalid_count,
-            total: data.total,
-            original_count: data.original_count,
-            duplicates_removed: data.duplicates_removed,
-            processing_time: data.processing_time,
-            domain_stats: data.domain_stats || null
-          });
-
-        } else {
-          // Anonymous users: Use streaming endpoint
-          const response = await fetch(`${API_URL}${endpoint}`, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({
-              emails,
-              advanced: mode === 'advanced',
-              remove_duplicates: removeDuplicates
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error('Stream validation failed');
-          }
-
+        if (isStreaming) {
+          // Handle streaming response for anonymous users
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
+
+          // Initialize results immediately for real-time display
+          setBatchResults({
+            results: [],
+            valid_count: 0,
+            invalid_count: 0,
+            total: emails.length,
+            original_count: emails.length,
+            duplicates_removed: 0,
+            processing_time: 0,
+            domain_stats: null
+          });
 
           while (true) {
             const { done, value } = await reader.read();
@@ -997,73 +1007,147 @@ function App() {
                 const data = JSON.parse(line.slice(6));
                 
                 if (data.type === 'start') {
-                  // Duplicate info is handled by backend
+                  console.log('🚀 Streaming validation started:', data);
+                  setBatchResults(prev => ({
+                    ...prev,
+                    total: data.total || prev.total,
+                    original_count: data.original_count || prev.original_count,
+                    duplicates_removed: data.duplicates_removed || 0
+                  }));
                 } else if (data.type === 'result') {
                   // Calculate ETA and speed
-                  const elapsed = (Date.now() - startTime) / 1000; // seconds
+                  const elapsed = (Date.now() - startTime) / 1000;
                   const current = data.progress.current;
                   const total = data.progress.total;
-                  const speed = current / elapsed; // emails per second
+                  const speed = current / elapsed;
                   const remaining = total - current;
-                  const eta = remaining / speed; // seconds
+                  const eta = remaining / speed;
 
-                  // Update progress
                   setProgress({
                     current,
                     total,
                     percentage: data.progress.percentage,
-                    eta: Math.ceil(eta),
+                    eta: Math.ceil(eta) || 0,
                     speed: speed.toFixed(1)
                   });
 
-                  // Save to localStorage for anonymous users
-                  if (!user && data.result) {
+                  if (data.result) {
                     saveValidationToLocalStorage(data.result);
                   }
 
-                  // Add result to the list in real-time
                   setBatchResults(prev => ({
                     ...prev,
                     results: [...prev.results, data.result],
                     valid_count: data.progress.valid,
-                    invalid_count: data.progress.invalid,
-                    total: data.progress.total
+                    invalid_count: data.progress.invalid
                   }));
+
+                  console.log(`✅ Real-time result ${current}/${total}:`, data.result.email, data.result.valid ? '✓' : '✗');
                 } else if (data.type === 'complete') {
-                  // Calculate actual processing time
                   const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
-                
-                // Final progress update
-                setProgress({
-                  current: data.total,
-                  total: data.total,
-                  percentage: 100,
-                  eta: 0,
-                  speed: (data.total / parseFloat(processingTime)).toFixed(1)
-                });
-                
-                // Final update
-                setBatchResults(prev => ({
-                  ...prev,
-                  valid_count: data.valid_count,
-                  invalid_count: data.invalid_count,
-                  total: data.total,
-                  original_count: data.original_count,
-                  duplicates_removed: data.duplicates_removed,
-                  domain_stats: data.domain_stats,
-                  processing_time: processingTime
-                }));
+                  
+                  setProgress({
+                    current: data.total,
+                    total: data.total,
+                    percentage: 100,
+                    eta: 0,
+                    speed: (data.total / parseFloat(processingTime)).toFixed(1)
+                  });
+                  
+                  setBatchResults(prev => ({
+                    ...prev,
+                    valid_count: data.valid_count,
+                    invalid_count: data.invalid_count,
+                    total: data.total,
+                    original_count: data.original_count || prev.original_count,
+                    duplicates_removed: data.duplicates_removed || prev.duplicates_removed,
+                    domain_stats: data.domain_stats,
+                    processing_time: processingTime
+                  }));
                 }
               }
             }
           }
+        } else {
+          // Handle regular JSON response for authenticated/admin users
+          let data;
+          try {
+            data = await response.json();
+            console.log('🎉 Batch validation completed:', data);
+          } catch (e) {
+            console.error('Failed to parse JSON response:', e);
+            throw new Error('Invalid response format from server');
+          }
+          
+          if (!data || !data.results) {
+            throw new Error('Invalid response: missing results');
+          }
+          
+          // Simulate streaming by adding results one by one with delay
+          setBatchResults({
+            results: [],
+            valid_count: 0,
+            invalid_count: 0,
+            total: data.total,
+            original_count: data.original_count,
+            duplicates_removed: data.duplicates_removed,
+            processing_time: data.processing_time,
+            domain_stats: data.domain_stats,
+            admin_validation: adminMode
+          });
+
+          // Simulate real-time display by adding results progressively
+          for (let i = 0; i < data.results.length; i++) {
+            const result = data.results[i];
+            const current = i + 1;
+            const percentage = Math.round((current / data.total) * 100);
+            
+            // Update progress
+            setProgress({
+              current,
+              total: data.total,
+              percentage,
+              eta: Math.max(0, Math.ceil((data.total - current) * 0.1)), // Simulate ETA
+              speed: '50.0' // Simulate speed
+            });
+
+            // Add result
+            setBatchResults(prev => ({
+              ...prev,
+              results: [...prev.results, result],
+              valid_count: data.results.slice(0, current).filter(r => r.valid).length,
+              invalid_count: data.results.slice(0, current).filter(r => !r.valid).length
+            }));
+
+            console.log(`✅ Simulated real-time result ${current}/${data.total}:`, result.email, result.valid ? '✓' : '✗');
+
+            // Small delay to simulate real-time processing (faster for admin)
+            if (i < data.results.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, adminMode ? 10 : 50));
+            }
+          }
+
+          // Final update
+          setProgress({
+            current: data.total,
+            total: data.total,
+            percentage: 100,
+            eta: 0,
+            speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : data.total
+          });
+
+          setBatchResults(prev => ({
+            ...prev,
+            valid_count: data.valid_count,
+            invalid_count: data.invalid_count,
+            processing_time: data.processing_time
+          }));
         }
-      }
-      
-      // Refresh history if on history tab
-      if (historyMode) {
-        loadHistory();
-      }
+        
+        // Refresh history if on history tab
+        if (historyMode) {
+          loadHistory();
+        }
     } catch (err) {
       const errorMsg = err.message || 'Batch validation failed';
       setError(errorMsg);
@@ -1202,29 +1286,7 @@ function App() {
     }
   };
 
-  const getConfidenceColor = (score) => {
-    if (score >= 95) return '#059669'; // Emerald for premium
-    if (score >= 85) return '#10b981'; // Green for excellent
-    if (score >= 70) return '#f59e0b'; // Amber for good
-    if (score >= 40) return '#f97316'; // Orange for fair
-    return '#ef4444'; // Red for poor
-  };
 
-  const getConfidenceLabel = (score) => {
-    if (score >= 95) return 'Premium';
-    if (score >= 85) return 'Excellent';
-    if (score >= 70) return 'Good';
-    if (score >= 40) return 'Fair';
-    return 'Poor';
-  };
-
-  const getConfidenceTextColor = (score) => {
-    if (score >= 95) return '#064e3b'; // Darkest green for premium
-    if (score >= 85) return '#065f46'; // Dark green for excellent
-    if (score >= 70) return '#92400e'; // Dark amber for good
-    if (score >= 40) return '#b45309'; // Orange for fair
-    return '#991b1b'; // Dark red for poor
-  };
 
 
 
@@ -2425,6 +2487,13 @@ function App() {
                   <button className="export-btn share" onClick={generateShareLink} title="Generate shareable link">
                     🔗 Share
                   </button>
+                  <button 
+                    className={`export-btn view-toggle ${batchResultsView === 'paginated' ? 'active' : ''}`}
+                    onClick={() => setBatchResultsView(batchResultsView === 'paginated' ? 'list' : 'paginated')}
+                    title={`Switch to ${batchResultsView === 'paginated' ? 'list' : 'paginated'} view`}
+                  >
+                    <FiList /> {batchResultsView === 'paginated' ? 'List View' : 'Card View'}
+                  </button>
                 </div>
               </div>
               {batchResults.duplicates_removed > 0 && (
@@ -2602,165 +2671,115 @@ function App() {
               </div>
             )}
 
-            {showBatchResults && (
-              <div className="batch-list" style={{ maxHeight: '600px', overflowY: 'auto' }}>
-                {batchResults.results.map((item, index) => (
-                <div key={index} className={`result-box batch-result-card ${item.valid ? 'valid' : 'invalid'}`}>
-                  <div className="result-header">
-                    <div className="result-title-row">
-                      <h3 className="batch-result-title">{item.valid ? 'Valid Email' : 'Invalid Email'}</h3>
-                      {item.status && (
-                        <span className={`status-badge status-${item.status.color}`}>
-                          {item.status.status.toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-                    <span className="email-display">{item.email}</span>
-                    {item.status && item.status.description && (
-                      <span className="status-description">{item.status.description}</span>
-                    )}
-                  </div>
+            {showBatchResults && batchResultsView === 'paginated' && (
+              <BatchResultsPaginated
+                results={batchResults.results}
+                mode={mode}
+                itemsPerPage={30}
+                getConfidenceColor={getConfidenceColor}
+                getConfidenceTextColor={getConfidenceTextColor}
+                getConfidenceLabel={getConfidenceLabel}
+                isStreaming={loading}
+              />
+            )}
 
-                  <div className="result-body">
-                  {mode === 'advanced' && item.checks && (
-                    <>
-                      <div className="confidence-section">
-                        <div className="confidence-label">Confidence Score</div>
-                        <div className="confidence-bar-container">
-                          <div
-                            className="confidence-bar"
-                            style={{
-                              width: `${item.confidence_score || 0}%`,
-                              backgroundColor: getConfidenceColor(item.confidence_score || 0)
-                            }}
-                          />
-                        </div>
-                        <div className="confidence-value" style={{
-                          color: getConfidenceTextColor(item.confidence_score || 0),
-                          fontWeight: '600'
-                        }}>
-                          {item.confidence_score || 0}/100 - {getConfidenceLabel(item.confidence_score || 0)}
-                        </div>
-                        
-                        {/* Low Confidence Warning */}
-                        {item.confidence_score !== undefined && item.confidence_score < 70 && (
-                          <div style={{
-                            marginTop: '12px',
-                            padding: '10px 12px',
-                            backgroundColor: item.confidence_score < 40 ? '#fee2e2' : '#fef3c7',
-                            border: `1px solid ${item.confidence_score < 40 ? '#ef4444' : '#f59e0b'}`,
-                            borderRadius: '8px',
-                            fontSize: '0.85rem',
-                            color: item.confidence_score < 40 ? '#991b1b' : '#92400e'
-                          }}>
-                            <strong>{item.confidence_score < 40 ? '⚠️ Bad Email' : '⚠️ Low Confidence'}</strong>
-                            <div style={{marginTop: '4px', fontSize: '0.8rem'}}>
-                              {item.confidence_score < 40 
-                                ? 'Very low quality - not recommended for use'
-                                : 'Additional verification recommended'}
-                            </div>
-                          </div>
+            {showBatchResults && batchResultsView === 'list' && (
+              <div className="batch-list" style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                <div style={{ 
+                  padding: '12px 16px', 
+                  background: '#f8fafc', 
+                  borderRadius: '8px', 
+                  marginBottom: '16px',
+                  fontSize: '0.9rem',
+                  color: '#6b7280',
+                  textAlign: 'center'
+                }}>
+                  📋 Classic List View - Showing all {batchResults.results.length} results
+                </div>
+                {batchResults.results.map((item, index) => (
+                  <div key={index} className={`result-box batch-result-card ${item.valid ? 'valid' : 'invalid'}`}>
+                    <div className="result-header">
+                      <div className="result-title-row">
+                        <h3 className="batch-result-title">#{index + 1} - {item.valid ? 'Valid Email' : 'Invalid Email'}</h3>
+                        {item.status && (
+                          <span className={`status-badge status-${item.status.color}`}>
+                            {item.status.status.toUpperCase()}
+                          </span>
                         )}
                       </div>
-
-                      {item.deliverability && (
-                        <div className="deliverability-section">
-                          <div className="deliverability-header">
-                            <span className="deliverability-label">Deliverability Score</span>
-                            <span 
-                              className="deliverability-grade"
-                              style={{ 
-                                backgroundColor: item.deliverability.deliverability_score >= 80 ? '#10b981' : 
-                                               item.deliverability.deliverability_score >= 60 ? '#f59e0b' : '#ef4444'
-                              }}
-                            >
-                              Grade: {item.deliverability.deliverability_grade}
-                            </span>
-                          </div>
-                          <div className="deliverability-score">{item.deliverability.deliverability_score}/100</div>
-                          <div className="deliverability-recommendation">
-                            {item.deliverability.recommendation}
-                          </div>
-                        </div>
+                      <span className="email-display">{item.email}</span>
+                      {item.status && item.status.description && (
+                        <span className="status-description">{item.status.description}</span>
                       )}
+                    </div>
 
-                      {item.risk_check && item.risk_check.overall_risk !== 'low' && (
-                        <div className={`risk-warning-section ${item.risk_check.overall_risk}`}>
-                          <h4>Risk Detection</h4>
-                          <div className="risk-warning-content">
-                            <div className="risk-level">
-                              Risk Level: <strong>{item.risk_check.overall_risk.toUpperCase()}</strong>
+                    <div className="result-body">
+                      {mode === 'advanced' && item.checks && (
+                        <>
+                          <div className="confidence-section">
+                            <div className="confidence-label">Confidence Score</div>
+                            <div className="confidence-bar-container">
+                              <div
+                                className="confidence-bar"
+                                style={{
+                                  width: `${item.confidence_score || 0}%`,
+                                  backgroundColor: getConfidenceColor(item.confidence_score || 0)
+                                }}
+                              />
                             </div>
-                            <div className="risk-recommendation">
-                              {item.risk_check.recommendation}
+                            <div className="confidence-value" style={{
+                              color: getConfidenceTextColor(item.confidence_score || 0),
+                              fontWeight: '600'
+                            }}>
+                              {item.confidence_score || 0}/100 - {getConfidenceLabel(item.confidence_score || 0)}
                             </div>
                           </div>
-                        </div>
-                      )}
 
-                      {item.bounce_check?.bounce_history?.has_bounced && (
-                        <div className={`bounce-warning-section ${item.bounce_check?.risk_level || 'medium'}`}>
-                          <h4>Bounce History</h4>
-                          <div className="bounce-warning-content">
-                            <div className="bounce-stats">
-                              <div className="bounce-stat">
-                                <strong>{item.bounce_check?.bounce_history?.total_bounces || 0}</strong>
-                                <span>Total Bounces</span>
-                              </div>
-                              <div className="bounce-stat">
-                                <strong>{item.bounce_check?.bounce_history?.hard_bounces || 0}</strong>
-                                <span>Hard Bounces</span>
-                              </div>
+                          <div className="checks-grid">
+                            <div className={`check-item ${item.checks.syntax ? 'pass' : 'fail'}`}>
+                              <span className="check-icon">{item.checks.syntax ? '✓' : '✗'}</span>
+                              <span>Syntax</span>
+                            </div>
+                            <div className={`check-item ${item.checks.dns_valid ? 'pass' : 'fail'}`}>
+                              <span className="check-icon">{item.checks.dns_valid ? '✓' : '✗'}</span>
+                              <span>DNS</span>
+                            </div>
+                            <div className={`check-item ${item.checks.mx_records ? 'pass' : 'fail'}`}>
+                              <span className="check-icon">{item.checks.mx_records ? '✓' : '✗'}</span>
+                              <span>MX Records</span>
+                            </div>
+                            <div className={`check-item ${!item.checks.is_disposable ? 'pass' : 'warn'}`}>
+                              <span className="check-icon">{!item.checks.is_disposable ? '✓' : '⚠'}</span>
+                              <span>Not Disposable</span>
+                            </div>
+                            <div className={`check-item ${!item.checks.is_role_based ? 'pass' : 'warn'}`}>
+                              <span className="check-icon">{!item.checks.is_role_based ? '✓' : '⚠'}</span>
+                              <span>Not Role-Based</span>
                             </div>
                           </div>
-                        </div>
+
+                          {item.suggestion && (
+                            <div className="suggestion-box">
+                              <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
+                            </div>
+                          )}
+
+                          {item.reason && (
+                            <div className="reason-box">
+                              <strong>Details:</strong> {item.reason}
+                            </div>
+                          )}
+                        </>
                       )}
 
-                      <div className="checks-grid">
-                        <div className={`check-item ${item.checks.syntax ? 'pass' : 'fail'}`}>
-                          <span className="check-icon">{item.checks.syntax ? '✓' : '✗'}</span>
-                          <span>Syntax</span>
-                        </div>
-                        <div className={`check-item ${item.checks.dns_valid ? 'pass' : 'fail'}`}>
-                          <span className="check-icon">{item.checks.dns_valid ? '✓' : '✗'}</span>
-                          <span>DNS</span>
-                        </div>
-                        <div className={`check-item ${item.checks.mx_records ? 'pass' : 'fail'}`}>
-                          <span className="check-icon">{item.checks.mx_records ? '✓' : '✗'}</span>
-                          <span>MX Records</span>
-                        </div>
-                        <div className={`check-item ${!item.checks.is_disposable ? 'pass' : 'warn'}`}>
-                          <span className="check-icon">{!item.checks.is_disposable ? '✓' : '⚠'}</span>
-                          <span>Not Disposable</span>
-                        </div>
-                        <div className={`check-item ${!item.checks.is_role_based ? 'pass' : 'warn'}`}>
-                          <span className="check-icon">{!item.checks.is_role_based ? '✓' : '⚠'}</span>
-                          <span>Not Role-Based</span>
-                        </div>
-                      </div>
-
-                      {item.suggestion && (
+                      {mode === 'basic' && item.suggestion && (
                         <div className="suggestion-box">
                           <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
                         </div>
                       )}
-
-                      {item.reason && (
-                        <div className="reason-box">
-                          <strong>Details:</strong> {item.reason}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {mode === 'basic' && item.suggestion && (
-                    <div className="suggestion-box">
-                      <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
                     </div>
-                  )}
                   </div>
-                </div>
-              ))}
+                ))}
               </div>
             )}
           </div>

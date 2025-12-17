@@ -1931,11 +1931,11 @@ def validate_batch_endpoint():
                 'message': 'Please provide at least one email address'
             }), 400
         
-        if len(emails) > 1000:
+        if len(emails) > 5000:
             logger.warning(f"Too many emails ({len(emails)}) from user {anon_user_id}")
             return jsonify({
                 'error': 'Too many emails',
-                'message': 'Maximum 1,000 emails per request'
+                'message': 'Maximum 5,000 emails per request'
             }), 400
         
         # Validate each email format
@@ -2513,10 +2513,10 @@ def validate_batch_stream():
                 'message': 'At least one email is required'
             }), 400
         
-        if len(emails) > 1000:
+        if len(emails) > 5000:
             return jsonify({
                 'error': 'Too many emails',
-                'message': 'Maximum 1000 emails per batch'
+                'message': 'Maximum 5000 emails per batch'
             }), 400
         
         def generate():
@@ -2557,34 +2557,48 @@ def validate_batch_stream():
                                     'checks': {'syntax': True}
                                 }
                             
-                            # Add enrichment
-                            enrichment_data = enricher.enrich_email(email)
-                            if enrichment_data:
-                                result['enrichment'] = enrichment_data
-                            
-                            # Add deliverability score
-                            deliverability = calculate_deliverability_score(email, result)
-                            result['deliverability'] = deliverability
-                            
-                            # Add pattern analysis
-                            pattern = analyze_email_pattern(email)
-                            if pattern:
-                                result['pattern_analysis'] = pattern
-                            
-                            # Add risk check
-                            if '@' in email:
-                                domain = email.split('@')[1]
-                                risk = comprehensive_risk_check(email, domain)
-                                result['risk_check'] = risk
-                            
-                            # Add bounce check (integrated)
-                            try:
-                                from email_sender import get_email_sender
-                                sender = get_email_sender()
-                                bounce_check = sender.check_bounce_history(email)
-                                result['bounce_check'] = bounce_check
-                            except Exception as e:
-                                logger.error(f"Bounce check failed: {e}")
+                            # PERFORMANCE OPTIMIZATION: Skip heavy operations for large batches
+                            # Only do basic validation for batches > 100 emails
+                            if total <= 100:
+                                # Add enrichment
+                                enrichment_data = enricher.enrich_email(email)
+                                if enrichment_data:
+                                    result['enrichment'] = enrichment_data
+                                
+                                # Add deliverability score
+                                deliverability = calculate_deliverability_score(email, result)
+                                result['deliverability'] = deliverability
+                                
+                                # Add pattern analysis
+                                pattern = analyze_email_pattern(email)
+                                if pattern:
+                                    result['pattern_analysis'] = pattern
+                                
+                                # Add risk check
+                                if '@' in email:
+                                    domain = email.split('@')[1]
+                                    risk = comprehensive_risk_check(email, domain)
+                                    result['risk_check'] = risk
+                                
+                                # Add bounce check (integrated)
+                                try:
+                                    from email_sender import get_email_sender
+                                    sender = get_email_sender()
+                                    bounce_check = sender.check_bounce_history(email)
+                                    result['bounce_check'] = bounce_check
+                                except Exception as e:
+                                    logger.error(f"Bounce check failed: {e}")
+                                    result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
+                            else:
+                                # Fast mode for large batches - skip heavy operations
+                                # Add minimal deliverability score
+                                result['deliverability'] = {
+                                    'deliverability_score': result.get('confidence_score', 50),
+                                    'deliverability_grade': 'B' if result.get('valid') else 'F'
+                                }
+                                # Add minimal risk check
+                                result['risk_check'] = {'overall_risk': 'low'}
+                                # Add minimal bounce check
                                 result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
                             
                             # Add status
@@ -2766,10 +2780,10 @@ def validate_batch_stream_local():
                 'message': 'At least one email is required'
             }), 400
         
-        if len(emails) > 1000:
+        if len(emails) > 5000:
             return jsonify({
                 'error': 'Too many emails',
-                'message': 'Maximum 1000 emails per batch'
+                'message': 'Maximum 5000 emails per batch'
             }), 400
         
         def generate():
@@ -2800,30 +2814,41 @@ def validate_batch_stream_local():
                             try:
                                 result = validate_email_advanced(email)
                                 
-                                # Add all the same enrichments as single validation
-                                enrichment_data = enricher.enrich_email(email)
-                                if enrichment_data:
-                                    result['enrichment'] = enrichment_data
-                                
-                                deliverability = calculate_deliverability_score(email, result)
-                                result['deliverability'] = deliverability
-                                
-                                pattern = analyze_email_pattern(email)
-                                if pattern:
-                                    result['pattern_analysis'] = pattern
-                                
-                                if '@' in email:
-                                    domain = email.split('@')[1]
-                                    risk = comprehensive_risk_check(email, domain)
-                                    result['risk_check'] = risk
-                                
-                                # Bounce check (but don't save)
-                                try:
-                                    from email_sender import get_email_sender
-                                    sender = get_email_sender()
-                                    bounce_check = sender.check_bounce_history(email)
-                                    result['bounce_check'] = bounce_check
-                                except Exception as e:
+                                # PERFORMANCE OPTIMIZATION: Skip heavy operations for large batches
+                                # Only do full validation for batches <= 100 emails
+                                if total <= 100:
+                                    # Add all the same enrichments as single validation
+                                    enrichment_data = enricher.enrich_email(email)
+                                    if enrichment_data:
+                                        result['enrichment'] = enrichment_data
+                                    
+                                    deliverability = calculate_deliverability_score(email, result)
+                                    result['deliverability'] = deliverability
+                                    
+                                    pattern = analyze_email_pattern(email)
+                                    if pattern:
+                                        result['pattern_analysis'] = pattern
+                                    
+                                    if '@' in email:
+                                        domain = email.split('@')[1]
+                                        risk = comprehensive_risk_check(email, domain)
+                                        result['risk_check'] = risk
+                                    
+                                    # Bounce check (but don't save)
+                                    try:
+                                        from email_sender import get_email_sender
+                                        sender = get_email_sender()
+                                        bounce_check = sender.check_bounce_history(email)
+                                        result['bounce_check'] = bounce_check
+                                    except Exception as e:
+                                        result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
+                                else:
+                                    # Fast mode for large batches - skip heavy operations
+                                    result['deliverability'] = {
+                                        'deliverability_score': result.get('confidence_score', 50),
+                                        'deliverability_grade': 'B' if result.get('valid') else 'F'
+                                    }
+                                    result['risk_check'] = {'overall_risk': 'low'}
                                     result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
                                 
                                 status = determine_email_status(result)

@@ -3051,3 +3051,38 @@ body.dark-mode .usage-stats-bar {
     padding: 3px 8px;
   }
 }
+/* View Toggle Button */
+.export-btn.view-toggle {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border: none;
+}
+
+.export-btn.view-toggle:hover {
+  background: linear-gradient(135deg, #5b21b6, #7c3aed);
+  transform: translateY(-1px);
+}
+
+.export-btn.view-toggle.active {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.export-btn.view-toggle.active:hover {
+  background: linear-gradient(135deg, #059669, #047857);
+}
+
+/* Batch Results List View Enhancement */
+.batch-list .batch-result-card .result-title-row h3 {
+  font-size: 1rem;
+  margin: 0;
+  color: #374151;
+}
+
+.batch-list .batch-result-card.valid .result-title-row h3 {
+  color: #059669;
+}
+
+.batch-list .batch-result-card.invalid .result-title-row h3 {
+  color: #dc2626;
+}
