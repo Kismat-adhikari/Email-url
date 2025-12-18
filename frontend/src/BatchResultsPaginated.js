@@ -1,18 +1,188 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { 
   FiChevronLeft, FiChevronRight, FiChevronsLeft, FiChevronsRight,
-  FiCheck, FiX, FiAlertTriangle, FiInfo, FiMail, FiShield
+  FiCheck, FiX, FiAlertTriangle, FiInfo, FiMail, FiShield, FiTrash2
 } from 'react-icons/fi';
 import './BatchResultsPaginated.css';
 
-const BatchResultsPaginated = ({ 
+// Memoized individual card component for better performance
+const ResultCard = React.memo(({ 
+  item, 
+  originalIndex, 
+  isNewlyAdded, 
+  mode, 
+  getConfidenceColor, 
+  getConfidenceTextColor, 
+  getConfidenceLabel,
+  isHistory = false,
+  onDeleteItem = null
+}) => (
+  <div className={`batch-result-card ${item.valid ? 'valid' : 'invalid'} ${isNewlyAdded ? 'streaming-new' : ''}`}>
+    {/* Card Header */}
+    <div className="card-header">
+      <div className="card-number">#{originalIndex}</div>
+      <div className="card-header-right">
+        {isHistory && (
+          <div className="history-date">
+            {new Date(item.validated_at).toLocaleDateString()}
+          </div>
+        )}
+        <div className={`status-indicator ${item.valid ? 'valid' : 'invalid'}`}>
+          {item.valid ? <FiCheck /> : <FiX />}
+        </div>
+        {isHistory && onDeleteItem && (
+          <button
+            className="delete-btn"
+            onClick={() => onDeleteItem(item.id)}
+            title="Delete from history"
+          >
+            <FiX />
+          </button>
+        )}
+      </div>
+    </div>
+
+    {/* Email */}
+    <div className="card-email">
+      <FiMail className="email-icon" />
+      <span className="email-text" title={item.email}>{item.email}</span>
+    </div>
+
+    {/* Status Badge */}
+    {item.status && (
+      <div className={`status-badge status-${item.status.color}`}>
+        {item.status.status.toUpperCase()}
+      </div>
+    )}
+
+    {/* Advanced Mode Details */}
+    {mode === 'advanced' && (
+      <div className="card-details">
+        {/* Confidence Score */}
+        {item.confidence_score !== undefined && (
+          <div className="confidence-section">
+            <div className="confidence-header">
+              <span className="confidence-label">Confidence</span>
+              <span 
+                className="confidence-value"
+                style={{ color: getConfidenceTextColor(item.confidence_score) }}
+              >
+                {item.confidence_score}/100
+              </span>
+            </div>
+            <div className="confidence-bar-container">
+              <div
+                className="confidence-bar"
+                style={{
+                  width: `${item.confidence_score}%`,
+                  backgroundColor: getConfidenceColor(item.confidence_score)
+                }}
+              />
+            </div>
+            <div className="confidence-grade">
+              {getConfidenceLabel(item.confidence_score)}
+            </div>
+          </div>
+        )}
+
+        {/* Deliverability */}
+        {item.deliverability && (
+          <div className="deliverability-section">
+            <div className="deliverability-header">
+              <span>Deliverability</span>
+              <span 
+                className="deliverability-grade"
+                style={{ 
+                  backgroundColor: item.deliverability.deliverability_score >= 80 ? '#10b981' : 
+                                 item.deliverability.deliverability_score >= 60 ? '#f59e0b' : '#ef4444'
+                }}
+              >
+                {item.deliverability.deliverability_grade}
+              </span>
+            </div>
+            <div className="deliverability-score">
+              {item.deliverability.deliverability_score}/100
+            </div>
+          </div>
+        )}
+
+        {/* Risk Warning */}
+        {item.risk_check && item.risk_check.overall_risk !== 'low' && (
+          <div className={`risk-warning ${item.risk_check.overall_risk}`}>
+            <FiAlertTriangle />
+            <span>Risk: {item.risk_check.overall_risk.toUpperCase()}</span>
+          </div>
+        )}
+
+        {/* Bounce Warning */}
+        {item.bounce_check?.bounce_history?.has_bounced && (
+          <div className="bounce-warning">
+            <FiShield />
+            <span>{item.bounce_check.bounce_history.total_bounces} bounces</span>
+          </div>
+        )}
+
+        {/* Quick Checks */}
+        <div className="quick-checks">
+          <div className={`quick-check ${item.checks?.syntax ? 'pass' : 'fail'}`}>
+            {item.checks?.syntax ? <FiCheck /> : <FiX />}
+            <span>Syntax</span>
+          </div>
+          <div className={`quick-check ${item.checks?.dns_valid ? 'pass' : 'fail'}`}>
+            {item.checks?.dns_valid ? <FiCheck /> : <FiX />}
+            <span>DNS</span>
+          </div>
+          <div className={`quick-check ${item.checks?.mx_records ? 'pass' : 'fail'}`}>
+            {item.checks?.mx_records ? <FiCheck /> : <FiX />}
+            <span>MX</span>
+          </div>
+        </div>
+
+        {/* Warnings */}
+        <div className="warnings">
+          {item.checks?.is_disposable && (
+            <div className="warning-item disposable">
+              <FiAlertTriangle />
+              <span>Disposable</span>
+            </div>
+          )}
+          {item.checks?.is_role_based && (
+            <div className="warning-item role-based">
+              <FiInfo />
+              <span>Role-based</span>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    {/* Suggestion */}
+    {item.suggestion && (
+      <div className="suggestion">
+        <span className="suggestion-label">💡 Did you mean:</span>
+        <span className="suggestion-text">{item.suggestion}</span>
+      </div>
+    )}
+
+    {/* Reason (for invalid emails) */}
+    {!item.valid && item.reason && (
+      <div className="reason">
+        <span className="reason-text">{item.reason}</span>
+      </div>
+    )}
+  </div>
+));
+
+const BatchResultsPaginated = React.memo(({ 
   results, 
   mode, 
   itemsPerPage = 30,
   getConfidenceColor,
   getConfidenceTextColor,
   getConfidenceLabel,
-  isStreaming = false // New prop to indicate if results are streaming
+  isStreaming = false,
+  isHistory = false,
+  onDeleteItem = null
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [filterStatus, setFilterStatus] = useState('all'); // all, valid, invalid
@@ -71,28 +241,67 @@ const BatchResultsPaginated = ({
     }
   }, [results.length, isStreaming, followLatest, filteredAndSortedResults.length, itemsPerPage, currentPage]);
 
-  // Track newly added items for animation
+  // Track newly added items for animation (optimized)
   const prevResultsLength = React.useRef(0);
+  const animationTimeoutRef = React.useRef(null);
+  
   React.useEffect(() => {
     if (isStreaming && results.length > prevResultsLength.current) {
-      // Mark new items as newly added
-      const newItems = new Set();
-      for (let i = prevResultsLength.current; i < results.length; i++) {
-        newItems.add(results[i].email);
-      }
-      setNewlyAdded(newItems);
+      // Only highlight if we're adding a reasonable number of new items
+      const newItemsCount = results.length - prevResultsLength.current;
       
-      // Remove the highlight after 3 seconds
-      setTimeout(() => {
-        setNewlyAdded(new Set());
-      }, 3000);
+      if (newItemsCount <= 50) { // Only animate if adding 50 or fewer items
+        const newItems = new Set();
+        for (let i = prevResultsLength.current; i < results.length; i++) {
+          newItems.add(results[i].email);
+        }
+        setNewlyAdded(newItems);
+        
+        // Clear previous timeout
+        if (animationTimeoutRef.current) {
+          clearTimeout(animationTimeoutRef.current);
+        }
+        
+        // Remove the highlight after 2 seconds (reduced from 3)
+        animationTimeoutRef.current = setTimeout(() => {
+          setNewlyAdded(new Set());
+        }, 2000);
+      }
     }
     prevResultsLength.current = results.length;
-  }, [results.length, isStreaming]);
+  }, [results, isStreaming]);
 
-  const goToPage = (page) => {
-    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  // Cleanup timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (animationTimeoutRef.current) {
+        clearTimeout(animationTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Optimize index lookup with memoization
+  const emailToIndexMap = React.useMemo(() => {
+    const map = new Map();
+    results.forEach((result, index) => {
+      map.set(result.email, index + 1);
+    });
+    return map;
+  }, [results]);
+
+  const getOriginalIndex = (item) => {
+    return emailToIndexMap.get(item.email) || 1;
   };
+
+  const goToPage = useCallback((page) => {
+    const newPage = Math.max(1, Math.min(page, totalPages));
+    setCurrentPage(newPage);
+    
+    // If user manually navigates during streaming, disable auto-follow
+    if (isStreaming && followLatest) {
+      setFollowLatest(false);
+    }
+  }, [totalPages, isStreaming, followLatest]);
 
   const getPageNumbers = () => {
     const pages = [];
@@ -121,10 +330,6 @@ const BatchResultsPaginated = ({
     }
     
     return pages;
-  };
-
-  const getOriginalIndex = (item) => {
-    return results.findIndex(r => r.email === item.email) + 1;
   };
 
   // Pagination Component (reusable for top and bottom)
@@ -271,148 +476,21 @@ const BatchResultsPaginated = ({
       <div className="batch-results-grid">
         {currentItems.map((item, index) => {
           const originalIndex = getOriginalIndex(item);
-          
           const isNewlyAdded = newlyAdded.has(item.email);
           
           return (
-            <div key={`${item.email}-${originalIndex}`} className={`batch-result-card ${item.valid ? 'valid' : 'invalid'} ${isNewlyAdded ? 'streaming-new' : ''}`}>
-              {/* Card Header */}
-              <div className="card-header">
-                <div className="card-number">#{originalIndex}</div>
-                <div className={`status-indicator ${item.valid ? 'valid' : 'invalid'}`}>
-                  {item.valid ? <FiCheck /> : <FiX />}
-                </div>
-              </div>
-
-              {/* Email */}
-              <div className="card-email">
-                <FiMail className="email-icon" />
-                <span className="email-text" title={item.email}>{item.email}</span>
-              </div>
-
-              {/* Status Badge */}
-              {item.status && (
-                <div className={`status-badge status-${item.status.color}`}>
-                  {item.status.status.toUpperCase()}
-                </div>
-              )}
-
-              {/* Advanced Mode Details */}
-              {mode === 'advanced' && (
-                <div className="card-details">
-                  {/* Confidence Score */}
-                  {item.confidence_score !== undefined && (
-                    <div className="confidence-section">
-                      <div className="confidence-header">
-                        <span className="confidence-label">Confidence</span>
-                        <span 
-                          className="confidence-value"
-                          style={{ color: getConfidenceTextColor(item.confidence_score) }}
-                        >
-                          {item.confidence_score}/100
-                        </span>
-                      </div>
-                      <div className="confidence-bar-container">
-                        <div
-                          className="confidence-bar"
-                          style={{
-                            width: `${item.confidence_score}%`,
-                            backgroundColor: getConfidenceColor(item.confidence_score)
-                          }}
-                        />
-                      </div>
-                      <div className="confidence-grade">
-                        {getConfidenceLabel(item.confidence_score)}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Deliverability */}
-                  {item.deliverability && (
-                    <div className="deliverability-section">
-                      <div className="deliverability-header">
-                        <span>Deliverability</span>
-                        <span 
-                          className="deliverability-grade"
-                          style={{ 
-                            backgroundColor: item.deliverability.deliverability_score >= 80 ? '#10b981' : 
-                                           item.deliverability.deliverability_score >= 60 ? '#f59e0b' : '#ef4444'
-                          }}
-                        >
-                          {item.deliverability.deliverability_grade}
-                        </span>
-                      </div>
-                      <div className="deliverability-score">
-                        {item.deliverability.deliverability_score}/100
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Risk Warning */}
-                  {item.risk_check && item.risk_check.overall_risk !== 'low' && (
-                    <div className={`risk-warning ${item.risk_check.overall_risk}`}>
-                      <FiAlertTriangle />
-                      <span>Risk: {item.risk_check.overall_risk.toUpperCase()}</span>
-                    </div>
-                  )}
-
-                  {/* Bounce Warning */}
-                  {item.bounce_check?.bounce_history?.has_bounced && (
-                    <div className="bounce-warning">
-                      <FiShield />
-                      <span>{item.bounce_check.bounce_history.total_bounces} bounces</span>
-                    </div>
-                  )}
-
-                  {/* Quick Checks */}
-                  <div className="quick-checks">
-                    <div className={`quick-check ${item.checks?.syntax ? 'pass' : 'fail'}`}>
-                      {item.checks?.syntax ? <FiCheck /> : <FiX />}
-                      <span>Syntax</span>
-                    </div>
-                    <div className={`quick-check ${item.checks?.dns_valid ? 'pass' : 'fail'}`}>
-                      {item.checks?.dns_valid ? <FiCheck /> : <FiX />}
-                      <span>DNS</span>
-                    </div>
-                    <div className={`quick-check ${item.checks?.mx_records ? 'pass' : 'fail'}`}>
-                      {item.checks?.mx_records ? <FiCheck /> : <FiX />}
-                      <span>MX</span>
-                    </div>
-                  </div>
-
-                  {/* Warnings */}
-                  <div className="warnings">
-                    {item.checks?.is_disposable && (
-                      <div className="warning-item disposable">
-                        <FiAlertTriangle />
-                        <span>Disposable</span>
-                      </div>
-                    )}
-                    {item.checks?.is_role_based && (
-                      <div className="warning-item role-based">
-                        <FiInfo />
-                        <span>Role-based</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Suggestion */}
-              {item.suggestion && (
-                <div className="suggestion">
-                  <span className="suggestion-label">💡 Did you mean:</span>
-                  <span className="suggestion-text">{item.suggestion}</span>
-                </div>
-              )}
-
-              {/* Reason (for invalid emails) */}
-              {!item.valid && item.reason && (
-                <div className="reason">
-                  <span className="reason-text">{item.reason}</span>
-                </div>
-              )}
-            </div>
+            <ResultCard 
+              key={`${item.email}-${originalIndex}`}
+              item={item}
+              originalIndex={originalIndex}
+              isNewlyAdded={isNewlyAdded}
+              mode={mode}
+              getConfidenceColor={getConfidenceColor}
+              getConfidenceTextColor={getConfidenceTextColor}
+              getConfidenceLabel={getConfidenceLabel}
+              isHistory={isHistory}
+              onDeleteItem={onDeleteItem}
+            />
           );
         })}
       </div>
@@ -428,6 +506,6 @@ const BatchResultsPaginated = ({
       )}
     </div>
   );
-};
+});
 
 export default BatchResultsPaginated;

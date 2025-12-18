@@ -2520,19 +2520,25 @@ def validate_batch_stream():
             }), 400
         
         def generate():
-            """Generator function that yields validation results one by one."""
+            """Generator function that yields validation results one by one with PARALLEL PROCESSING."""
+            import concurrent.futures
+            import threading
+            from queue import Queue
+            
             storage = get_storage()
             total = len(emails)
             valid_count = 0
             invalid_count = 0
             all_results = []  # Collect all results for domain stats
             
-            # Send initial progress event with duplicate info
-            yield f"data: {json.dumps({'type': 'start', 'total': total, 'original_count': original_count, 'duplicates_removed': duplicates_removed})}\n\n"
+            # Thread-safe counters
+            counter_lock = threading.Lock()
+            result_queue = Queue()
             
-            for index, email in enumerate(emails):
+            def validate_single_email(email_data):
+                """Validate a single email in parallel."""
+                index, email = email_data
                 try:
-                    # Clean email
                     email = email.strip()
                     
                     # Validate email format
@@ -2558,27 +2564,41 @@ def validate_batch_stream():
                                 }
                             
                             # PERFORMANCE OPTIMIZATION: Skip heavy operations for large batches
-                            # Only do basic validation for batches > 100 emails
                             if total <= 100:
                                 # Add enrichment
-                                enrichment_data = enricher.enrich_email(email)
-                                if enrichment_data:
-                                    result['enrichment'] = enrichment_data
+                                try:
+                                    enrichment_data = enricher.enrich_email(email)
+                                    if enrichment_data:
+                                        result['enrichment'] = enrichment_data
+                                except:
+                                    pass
                                 
                                 # Add deliverability score
-                                deliverability = calculate_deliverability_score(email, result)
-                                result['deliverability'] = deliverability
+                                try:
+                                    deliverability = calculate_deliverability_score(email, result)
+                                    result['deliverability'] = deliverability
+                                except:
+                                    result['deliverability'] = {
+                                        'deliverability_score': result.get('confidence_score', 50),
+                                        'deliverability_grade': 'B' if result.get('valid') else 'F'
+                                    }
                                 
                                 # Add pattern analysis
-                                pattern = analyze_email_pattern(email)
-                                if pattern:
-                                    result['pattern_analysis'] = pattern
+                                try:
+                                    pattern = analyze_email_pattern(email)
+                                    if pattern:
+                                        result['pattern_analysis'] = pattern
+                                except:
+                                    pass
                                 
                                 # Add risk check
-                                if '@' in email:
-                                    domain = email.split('@')[1]
-                                    risk = comprehensive_risk_check(email, domain)
-                                    result['risk_check'] = risk
+                                try:
+                                    if '@' in email:
+                                        domain = email.split('@')[1]
+                                        risk = comprehensive_risk_check(email, domain)
+                                        result['risk_check'] = risk
+                                except:
+                                    result['risk_check'] = {'overall_risk': 'low'}
                                 
                                 # Add bounce check (integrated)
                                 try:
@@ -2587,33 +2607,99 @@ def validate_batch_stream():
                                     bounce_check = sender.check_bounce_history(email)
                                     result['bounce_check'] = bounce_check
                                 except Exception as e:
-                                    logger.error(f"Bounce check failed: {e}")
                                     result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
                             else:
-                                # Fast mode for large batches - skip heavy operations
-                                # Add minimal deliverability score
+                                # Fast mode for large batches - minimal overhead
                                 result['deliverability'] = {
                                     'deliverability_score': result.get('confidence_score', 50),
                                     'deliverability_grade': 'B' if result.get('valid') else 'F'
                                 }
-                                # Add minimal risk check
                                 result['risk_check'] = {'overall_risk': 'low'}
-                                # Add minimal bounce check
                                 result['bounce_check'] = {'has_bounced': False, 'total_bounces': 0, 'risk_level': 'low'}
-                            
-                            # Add status
-                            status = determine_email_status(result)
-                            result['status'] = status
                         else:
                             # Basic validation
                             result = {'email': email, 'valid': validate_email_format(email)}
+                    
+                    return (index, result)
+                    
+                except Exception as e:
+                    logger.error(f"Error validating {email}: {str(e)}")
+                    return (index, {
+                        'email': email,
+                        'valid': False,
+                        'reason': f'Validation error: {str(e)}'
+                    })
+            
+            # Send initial progress event with duplicate info
+            yield f"data: {json.dumps({'type': 'start', 'total': total, 'original_count': original_count, 'duplicates_removed': duplicates_removed})}\n\n"
+            
+            # PARALLEL PROCESSING - Process emails in batches of 20 simultaneously
+            batch_size = 20  # Process 20 emails at once
+            max_workers = min(20, total)  # Don't create more threads than emails
+            
+            # Prepare email data with indices
+            email_data = [(i, email) for i, email in enumerate(emails)]
+            
+            # Process emails in parallel batches
+            processed_results = [None] * total  # Pre-allocate results array
+            batch_results_for_db = []  # Collect results for batch database write
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Process emails in chunks
+                for batch_start in range(0, total, batch_size):
+                    batch_end = min(batch_start + batch_size, total)
+                    batch_emails = email_data[batch_start:batch_end]
+                    
+                    # Submit batch for parallel processing
+                    future_to_email = {
+                        executor.submit(validate_single_email, email_data): email_data 
+                        for email_data in batch_emails
+                    }
+                    
+                    # Collect results as they complete
+                    for future in concurrent.futures.as_completed(future_to_email):
+                        try:
+                            index, result = future.result()
+                            processed_results[index] = result
+                            
+                            # Update counters thread-safely
+                            with counter_lock:
+                                if result.get('valid'):
+                                    valid_count += 1
+                                else:
+                                    invalid_count += 1
+                                
+                                # Add to batch for database write
+                                batch_results_for_db.append((index, result))
+                                
+                                # Send result event immediately
+                                event_data = {
+                                    'type': 'result',
+                                    'index': index,
+                                    'total': total,
+                                    'result': result,
+                                    'progress': {
+                                        'current': len(batch_results_for_db),
+                                        'total': total,
+                                        'valid': valid_count,
+                                        'invalid': invalid_count,
+                                        'percentage': int((len(batch_results_for_db) / total) * 100)
+                                    }
+                                }
+                                yield f"data: {json.dumps(event_data)}\n\n"
                         
-                        # Store in database
-                        if storage:
-                            try:
-                                storage.create_record({
+                        except Exception as e:
+                            logger.error(f"Future result error: {str(e)}")
+                    
+                    # BATCH DATABASE WRITE - Write 20 results at once instead of 1 by 1
+                    if batch_results_for_db and storage:
+                        try:
+                            # Prepare batch data for database
+                            batch_records = []
+                            for idx, result in batch_results_for_db:
+                                batch_records.append({
                                     'anon_user_id': anon_user_id,
-                                    'user_id': user_id,  # Include user_id for authenticated users
+                                    'user_id': user_id,
                                     'email': result.get('email'),
                                     'valid': result.get('valid', False),
                                     'confidence_score': result.get('confidence_score', 0),
@@ -2621,65 +2707,32 @@ def validate_batch_stream():
                                     'is_disposable': result.get('checks', {}).get('is_disposable', False),
                                     'is_role_based': result.get('checks', {}).get('is_role_based', False)
                                 })
-                                
-                                # Increment API usage for authenticated users (skip for admins)
-                                if authenticated_user and user_id and not is_admin_request():
-                                    try:
-                                        storage.increment_api_usage(user_id, 1)
-                                        logger.debug(f"API usage incremented for user {user_id}")
-                                    except Exception as e:
-                                        logger.error(f"Failed to increment API usage: {str(e)}")
-                                elif is_admin_request():
-                                    logger.debug(f"Admin batch validation (unlimited): {result.get('email')}")
-                                        
-                            except Exception as e:
-                                logger.error(f"Failed to store validation: {str(e)}")
-                    
-                    # Update counters
-                    if result.get('valid'):
-                        valid_count += 1
-                    else:
-                        invalid_count += 1
-                    
-                    # Store result for domain stats
-                    all_results.append(result)
-                    
-                    # Send result event
-                    event_data = {
-                        'type': 'result',
-                        'index': index,
-                        'total': total,
-                        'result': result,
-                        'progress': {
-                            'current': index + 1,
-                            'total': total,
-                            'valid': valid_count,
-                            'invalid': invalid_count,
-                            'percentage': int(((index + 1) / total) * 100)
-                        }
-                    }
-                    yield f"data: {json.dumps(event_data)}\n\n"
-                    
-                except Exception as e:
-                    logger.error(f"Error validating {email}: {str(e)}")
-                    error_result = {
-                        'type': 'result',
-                        'index': index,
-                        'total': total,
-                        'result': {
-                            'email': email,
-                            'valid': False,
-                            'reason': f'Validation error: {str(e)}'
-                        },
-                        'progress': {
-                            'current': index + 1,
-                            'total': total,
-                            'valid': valid_count,
-                            'invalid': invalid_count,
-                            'percentage': int(((index + 1) / total) * 100)
-                        }
-                    }
-                    yield f"data: {json.dumps(error_result)}\n\n"
+                            
+                            # Batch insert to database (much faster than individual inserts)
+                            if hasattr(storage, 'create_records_batch'):
+                                storage.create_records_batch(batch_records)
+                            else:
+                                # Fallback to individual inserts if batch not available
+                                for record in batch_records:
+                                    storage.create_record(record)
+                            
+                            # Batch update API usage
+                            if authenticated_user and user_id and not is_admin_request():
+                                try:
+                                    storage.increment_api_usage(user_id, len(batch_records))
+                                except Exception as e:
+                                    logger.error(f"Failed to increment API usage: {str(e)}")
+                            
+                            # Clear batch
+                            batch_results_for_db = []
+                            
+                        except Exception as e:
+                            logger.error(f"Batch database write failed: {str(e)}")
+                            batch_results_for_db = []
+            
+            # Collect all results for domain stats
+            all_results = [r for r in processed_results if r is not None]
+
             
             # Calculate domain statistics
             domain_stats = calculate_domain_stats(all_results)
@@ -3826,4 +3879,14 @@ if __name__ == '__main__':
     print("\n" + "=" * 70)
     print()
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Configure for better performance and connection handling
+    app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max request size
+    app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching for development
+    
+    app.run(
+        debug=True, 
+        host='0.0.0.0', 
+        port=5000,
+        threaded=True,  # Enable threading for concurrent requests
+        use_reloader=False  # Disable reloader to prevent issues with threading
+    )

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
@@ -9,10 +9,12 @@ import {
   FiTrash2, FiDownload, FiCopy, FiCheckCircle, FiXCircle,
   FiZap, FiCpu, FiInbox, FiList, FiClock, FiAlertTriangle,
   FiAlertCircle, FiFileText, FiSend,
-  FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut
+  FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut,
+  FiInfo, FiHelpCircle, FiX, FiLink
 } from 'react-icons/fi';
 import EmailComposer from './EmailComposer';
 import BatchResultsPaginated from './BatchResultsPaginated';
+import HistoryPaginated from './HistoryPaginated';
 import { getCorrectApiLimit, formatApiLimit, formatApiUsageWithPeriod } from './utils/apiUtils';
 
 
@@ -25,7 +27,7 @@ function generateUUID() {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : ((r & 0x3) | 0x8);
     return v.toString(16);
-  });One
+  });
 }
 
 function getAnonUserId() {
@@ -124,7 +126,75 @@ function App() {
   const [shareLink, setShareLink] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showBatchResults, setShowBatchResults] = useState(true);
-  const [batchResultsView, setBatchResultsView] = useState('paginated'); // 'paginated' or 'list'
+  
+  // Custom modal system
+  const [showModal, setShowModal] = useState(false);
+  const [modalConfig, setModalConfig] = useState({
+    title: '',
+    message: '',
+    type: 'info', // 'info', 'confirm', 'warning', 'error', 'success'
+    onConfirm: null,
+    onCancel: null,
+    confirmText: 'OK',
+    cancelText: 'Cancel'
+  });
+
+  // Modal helper functions
+  const showInfoModal = (title, message) => {
+    setModalConfig({
+      title,
+      message,
+      type: 'info',
+      onConfirm: () => setShowModal(false),
+      onCancel: null,
+      confirmText: 'OK',
+      cancelText: 'Cancel'
+    });
+    setShowModal(true);
+  };
+
+  const showSuccessModal = (title, message) => {
+    setModalConfig({
+      title,
+      message,
+      type: 'success',
+      onConfirm: () => setShowModal(false),
+      onCancel: null,
+      confirmText: 'OK',
+      cancelText: 'Cancel'
+    });
+    setShowModal(true);
+  };
+
+  const showErrorModal = (title, message) => {
+    setModalConfig({
+      title,
+      message,
+      type: 'error',
+      onConfirm: () => setShowModal(false),
+      onCancel: null,
+      confirmText: 'OK',
+      cancelText: 'Cancel'
+    });
+    setShowModal(true);
+  };
+
+  const showConfirmModal = (title, message, onConfirm, confirmText = 'Confirm', cancelText = 'Cancel') => {
+    setModalConfig({
+      title,
+      message,
+      type: 'confirm',
+      onConfirm: () => {
+        setShowModal(false);
+        if (onConfirm) onConfirm();
+      },
+      onCancel: () => setShowModal(false),
+      confirmText,
+      cancelText
+    });
+    setShowModal(true);
+  };
+
   
   // User status cache to avoid frequent API calls
   const [lastStatusCheck, setLastStatusCheck] = useState(0);
@@ -141,9 +211,9 @@ function App() {
   const ANON_VALIDATION_LIMIT = 2;
   
   const [history, setHistory] = useState([]);
-  const [filteredHistory, setFilteredHistory] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('today'); // Default to today
   const [historyLoading, setHistoryLoading] = useState(false);
   
   // Authentication state
@@ -311,7 +381,7 @@ function App() {
     };
 
     refreshUserData();
-  }, [api, authToken, user, handleLogout]); // Run once on app load
+  }, [authToken, user, handleLogout]); // Run once on app load
 
   // Helper function for immediate suspension checking
   const checkUserStatus = useCallback(async (forceCheck = false) => {
@@ -333,7 +403,10 @@ function App() {
         const suspensionData = error.response.data;
         
         // Show suspension notification
-        alert(`🚫 Account Suspended\n\nYour account has been suspended.\nReason: ${suspensionData.reason}\nDate: ${new Date(suspensionData.suspended_at).toLocaleString()}\n\nYou will be logged out automatically.`);
+        showErrorModal(
+          'Account Suspended',
+          `Your account has been suspended.\n\nReason: ${suspensionData.reason}\nDate: ${new Date(suspensionData.suspended_at).toLocaleString()}\n\nYou will be logged out automatically.`
+        );
         
         // Force logout
         handleLogout();
@@ -344,24 +417,38 @@ function App() {
     }
   }, [user, authToken, api, handleLogout, lastStatusCheck]);
 
-  const loadHistory = useCallback(async () => {
-    setHistoryLoading(true);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // Reset history loaded state when user changes
+  useEffect(() => {
+    setHistoryLoaded(false);
+  }, [user?.id]);
+
+  const loadHistory = useCallback(async (forceReload = false) => {
+    // Don't reload if already loaded unless forced
+    if (historyLoaded && !forceReload) {
+      return;
+    }
+
     try {
       if (user) {
-        // Authenticated user - load from database
-        const response = await api.get('/api/history?limit=100');
+        // Only show loading for authenticated users (database calls)
+        setHistoryLoading(true);
+        
+        // Authenticated user - load from database with pagination
+        const response = await api.get('/api/history?limit=500'); // Load more but still reasonable
         const historyData = response.data.history || [];
         
         setHistory(historyData);
-        setFilteredHistory(historyData);
+        setHistoryLoaded(true);
         
         console.log(`📊 Loaded ${historyData.length} database records for authenticated user: ${user.firstName} ${user.lastName}`);
       } else {
-        // Anonymous user - load from localStorage
+        // Anonymous user - load from localStorage (instant, no loading state)
         const localHistory = getLocalStorageHistory();
         
         setHistory(localHistory);
-        setFilteredHistory(localHistory);
+        setHistoryLoaded(true);
         
         console.log(`📊 Loaded ${localHistory.length} localStorage records for anonymous user`);
       }
@@ -373,12 +460,14 @@ function App() {
       } else {
         // Fallback to empty history for localStorage errors
         setHistory([]);
-        setFilteredHistory([]);
+        setHistoryLoaded(true);
       }
     } finally {
-      setHistoryLoading(false);
+      if (user) {
+        setHistoryLoading(false);
+      }
     }
-  }, [user, api]);
+  }, [user, api, historyLoaded]);
 
   useEffect(() => {
     // Clean up signup success URL parameter (no alert needed)
@@ -449,8 +538,8 @@ function App() {
       loadSharedData();
     }
     
-    // Reload history when user authentication changes
-    if (historyMode) {
+    // Load history in background when user changes (but don't show loading)
+    if (user || (!user && !historyLoaded)) {
       loadHistory();
     }
   }, [user, historyMode, loadHistory]);
@@ -654,9 +743,9 @@ function App() {
     if (!shareLink) return;
     
     navigator.clipboard.writeText(shareLink).then(() => {
-      alert('✓ Share link copied to clipboard!');
+      showSuccessModal('Success', 'Share link copied to clipboard!');
     }).catch(() => {
-      alert('Failed to copy link');
+      showErrorModal('Error', 'Failed to copy link');
     });
   };
 
@@ -668,7 +757,7 @@ function App() {
       .join('\n');
 
     navigator.clipboard.writeText(text).then(() => {
-      alert('Results copied to clipboard!');
+      showSuccessModal('Success', 'Results copied to clipboard!');
     });
   };
 
@@ -896,6 +985,10 @@ function App() {
     setBatchResults({ results: [], total: emails.length, valid_count: 0, invalid_count: 0 });
     setProgress({ current: 0, total: emails.length, percentage: 0, eta: 0, speed: 0 });
 
+    // Declare timeout variables outside try block
+    let controller = null;
+    let timeoutId = null;
+
     try {
       // Use different endpoint based on mode
       let endpoint;
@@ -942,12 +1035,20 @@ function App() {
         });
       }
 
-        // Debug: Log headers being sent
+        // Debug: Log request details
         console.log('📤 Sending batch validation request:', {
           endpoint: `${API_URL}${endpoint}`,
+          fullUrl: `${API_URL}${endpoint}`,
           headers: headers,
-          emailCount: emails.length
+          emailCount: emails.length,
+          mode: mode,
+          adminMode: adminMode,
+          user: user ? user.email : 'anonymous'
         });
+
+        // Create timeout controller for better browser compatibility
+        controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
 
         const response = await fetch(`${API_URL}${endpoint}`, {
           method: 'POST',
@@ -956,8 +1057,11 @@ function App() {
             emails,
             advanced: mode === 'advanced',
             remove_duplicates: removeDuplicates
-          })
+          }),
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId); // Clear timeout if request succeeds
 
         console.log('📥 Response status:', response.status, response.statusText);
 
@@ -980,6 +1084,12 @@ function App() {
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
+          
+          // Optimized batch updates to eliminate lag
+          let pendingResults = [];
+          let lastUpdateTime = Date.now();
+          const UPDATE_INTERVAL = 100; // Update UI every 100ms to reduce re-renders
+          const BATCH_SIZE = 20; // Larger batches for fewer updates
 
           // Initialize results immediately for real-time display
           setBatchResults({
@@ -993,18 +1103,49 @@ function App() {
             domain_stats: null
           });
 
-          while (true) {
-            const { done, value } = await reader.read();
+          const flushPendingResults = () => {
+            if (pendingResults.length === 0) return;
             
-            if (done) break;
+            // Use functional update with pre-calculated values for speed
+            const newResults = pendingResults.slice(); // Copy array
+            const validCount = newResults.filter(r => r.valid).length;
+            const invalidCount = newResults.length - validCount;
             
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            setBatchResults(prev => ({
+              ...prev,
+              results: prev.results.concat(newResults), // Faster than spread
+              valid_count: prev.valid_count + validCount,
+              invalid_count: prev.invalid_count + invalidCount
+            }));
+            
+            // Save to localStorage in batch (async to not block UI)
+            setTimeout(() => {
+              newResults.forEach(result => {
+                if (result) saveValidationToLocalStorage(result);
+              });
+            }, 0);
+            
+            pendingResults = [];
+          };
 
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = JSON.parse(line.slice(6));
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              
+              if (done) {
+                // Flush any remaining results
+                flushPendingResults();
+                break;
+              }
+              
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
                 
                 if (data.type === 'start') {
                   console.log('🚀 Streaming validation started:', data);
@@ -1015,7 +1156,12 @@ function App() {
                     duplicates_removed: data.duplicates_removed || 0
                   }));
                 } else if (data.type === 'result') {
-                  // Calculate ETA and speed
+                  // Add to pending batch instead of immediate update
+                  if (data.result) {
+                    pendingResults.push(data.result);
+                  }
+
+                  // Update progress immediately for responsiveness (separate from result batching)
                   const elapsed = (Date.now() - startTime) / 1000;
                   const current = data.progress.current;
                   const total = data.progress.total;
@@ -1023,6 +1169,7 @@ function App() {
                   const remaining = total - current;
                   const eta = remaining / speed;
 
+                  // Always update progress immediately - don't batch this
                   setProgress({
                     current,
                     total,
@@ -1031,21 +1178,21 @@ function App() {
                     speed: speed.toFixed(1)
                   });
 
-                  if (data.result) {
-                    saveValidationToLocalStorage(data.result);
+                  // Flush results more frequently for faster display
+                  const now = Date.now();
+                  if (pendingResults.length >= BATCH_SIZE || (now - lastUpdateTime) >= UPDATE_INTERVAL) {
+                    flushPendingResults();
+                    lastUpdateTime = now;
                   }
-
-                  setBatchResults(prev => ({
-                    ...prev,
-                    results: [...prev.results, data.result],
-                    valid_count: data.progress.valid,
-                    invalid_count: data.progress.invalid
-                  }));
 
                   console.log(`✅ Real-time result ${current}/${total}:`, data.result.email, data.result.valid ? '✓' : '✗');
                 } else if (data.type === 'complete') {
+                  // Final flush
+                  flushPendingResults();
+                  
                   const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
                   
+                  // Final progress update - ensure completion is shown
                   setProgress({
                     current: data.total,
                     total: data.total,
@@ -1053,6 +1200,9 @@ function App() {
                     eta: 0,
                     speed: (data.total / parseFloat(processingTime)).toFixed(1)
                   });
+
+                  // Also update loading state to show completion
+                  setLoading(false);
                   
                   setBatchResults(prev => ({
                     ...prev,
@@ -1065,7 +1215,24 @@ function App() {
                     processing_time: processingTime
                   }));
                 }
+                  } catch (parseError) {
+                    console.warn('Failed to parse streaming data:', line, parseError);
+                    // Continue processing other lines
+                  }
+                }
               }
+            }
+          } catch (streamError) {
+            console.error('Streaming error:', streamError);
+            // Flush any pending results before throwing
+            flushPendingResults();
+            
+            // If we have some results, don't fail completely
+            if (pendingResults.length > 0 || (batchResults && batchResults.results.length > 0)) {
+              console.log('⚠️ Streaming interrupted but partial results available');
+              setError(`Network error after processing ${batchResults?.results?.length || 0} emails. Partial results shown.`);
+            } else {
+              throw new Error(`Network error during streaming: ${streamError.message}`);
             }
           }
         } else {
@@ -1083,7 +1250,7 @@ function App() {
             throw new Error('Invalid response: missing results');
           }
           
-          // Simulate streaming by adding results one by one with delay
+          // Fast batch display for admin/authenticated users (no artificial delays)
           setBatchResults({
             results: [],
             valid_count: 0,
@@ -1096,34 +1263,62 @@ function App() {
             admin_validation: adminMode
           });
 
-          // Simulate real-time display by adding results progressively
-          for (let i = 0; i < data.results.length; i++) {
-            const result = data.results[i];
-            const current = i + 1;
-            const percentage = Math.round((current / data.total) * 100);
-            
-            // Update progress
-            setProgress({
-              current,
-              total: data.total,
-              percentage,
-              eta: Math.max(0, Math.ceil((data.total - current) * 0.1)), // Simulate ETA
-              speed: '50.0' // Simulate speed
-            });
-
-            // Add result
+          // Ultra-fast display - show all results immediately for admin/authenticated users
+          if (data.results.length <= 1000) {
+            // For smaller batches, show all results immediately
             setBatchResults(prev => ({
               ...prev,
-              results: [...prev.results, result],
-              valid_count: data.results.slice(0, current).filter(r => r.valid).length,
-              invalid_count: data.results.slice(0, current).filter(r => !r.valid).length
+              results: data.results,
+              valid_count: data.valid_count,
+              invalid_count: data.invalid_count,
+              processing_time: data.processing_time
             }));
+            
+            setProgress({
+              current: data.total,
+              total: data.total,
+              percentage: 100,
+              eta: 0,
+              speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : '∞'
+            });
+            
+            console.log(`✅ Instantly displayed all ${data.results.length} results`);
+          } else {
+            // For larger batches, use optimized chunking with minimal delays
+            const CHUNK_SIZE = 200; // Larger chunks for faster display
+            const chunks = [];
+            for (let i = 0; i < data.results.length; i += CHUNK_SIZE) {
+              chunks.push(data.results.slice(i, i + CHUNK_SIZE));
+            }
 
-            console.log(`✅ Simulated real-time result ${current}/${data.total}:`, result.email, result.valid ? '✓' : '✗');
+            for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+              const chunk = chunks[chunkIndex];
+              const actualTotal = Math.min((chunkIndex + 1) * CHUNK_SIZE, data.results.length);
+              const percentage = Math.round((actualTotal / data.total) * 100);
+              
+              // Update progress
+              setProgress({
+                current: actualTotal,
+                total: data.total,
+                percentage,
+                eta: 0,
+                speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : '∞'
+              });
 
-            // Small delay to simulate real-time processing (faster for admin)
-            if (i < data.results.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, adminMode ? 10 : 50));
+              // Add chunk efficiently using concat
+              setBatchResults(prev => ({
+                ...prev,
+                results: prev.results.concat(chunk),
+                valid_count: prev.valid_count + chunk.filter(r => r.valid).length,
+                invalid_count: prev.invalid_count + chunk.filter(r => !r.valid).length
+              }));
+
+              console.log(`✅ Added chunk ${chunkIndex + 1}/${chunks.length}: ${chunk.length} results (${actualTotal}/${data.total} total)`);
+
+              // Minimal delay only between chunks (5ms for ultra-fast display)
+              if (chunkIndex < chunks.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 5));
+              }
             }
           }
 
@@ -1133,7 +1328,7 @@ function App() {
             total: data.total,
             percentage: 100,
             eta: 0,
-            speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : data.total
+            speed: data.processing_time > 0 ? (data.total / data.processing_time).toFixed(1) : '∞'
           });
 
           setBatchResults(prev => ({
@@ -1149,14 +1344,27 @@ function App() {
           loadHistory();
         }
     } catch (err) {
-      const errorMsg = err.message || 'Batch validation failed';
+      console.error('❌ Batch validation error:', err);
+      
+      let errorMsg = 'Batch validation failed';
+      
+      if (err.name === 'AbortError') {
+        errorMsg = 'Request timed out after 5 minutes. Please try with a smaller batch.';
+      } else if (err.message.includes('fetch')) {
+        errorMsg = `Connection failed: ${err.message}. Make sure the backend is running on port 5000.`;
+      } else {
+        errorMsg = err.message || 'Batch validation failed';
+      }
+      
       setError(errorMsg);
     } finally {
+      if (timeoutId) clearTimeout(timeoutId); // Ensure timeout is cleared
       setLoading(false);
     }
   };
 
-  const filterHistory = () => {
+  // Memoized filtered history to prevent unnecessary re-renders
+  const filteredHistory = useMemo(() => {
     let filtered = [...history];
     
     // Search filter
@@ -1175,63 +1383,97 @@ function App() {
         return true;
       });
     }
+
+    // Date filter
+    if (dateFilter !== 'all') {
+      const now = new Date();
+      const filterDate = new Date();
+      
+      switch (dateFilter) {
+        case 'today':
+          filterDate.setHours(0, 0, 0, 0);
+          break;
+        case 'week':
+          filterDate.setDate(now.getDate() - 7);
+          break;
+        case 'month':
+          filterDate.setMonth(now.getMonth() - 1);
+          break;
+        case '3months':
+          filterDate.setMonth(now.getMonth() - 3);
+          break;
+        default:
+          filterDate.setFullYear(1970); // Show all
+      }
+      
+      filtered = filtered.filter(item => {
+        const itemDate = new Date(item.validated_at);
+        return itemDate >= filterDate;
+      });
+    }
+
+    // Sort by date (newest first)
+    filtered.sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
     
-    setFilteredHistory(filtered);
-  };
+    return filtered;
+  }, [history, searchTerm, statusFilter, dateFilter]);
 
   const deleteHistoryItem = async (id) => {
     // Custom confirmation dialog
-    const confirmed = window.confirm(
-      'Remove this record from view?\n\n' +
-      'Note: This will only hide the record from this page. ' +
-      'Your API usage count will not change.'
+    showConfirmModal(
+      'Remove Record',
+      'Remove this record from view?\n\nNote: This will only hide the record from this page. Your API usage count will not change.',
+      () => {
+        try {
+          // Only remove from the current display, not from actual data
+          const updatedHistory = history.filter(item => item.id !== id);
+          
+          setHistory(updatedHistory);
+          
+          // Show success message
+          showSuccessModal('Success', 'Record removed from view');
+          console.log('✅ Record removed from view (API usage unchanged)');
+        } catch (err) {
+          showErrorModal('Error', 'Failed to remove record from view');
+        }
+      },
+      'Remove',
+      'Cancel'
     );
-    
-    if (!confirmed) return;
-    
-    try {
-      // Only remove from the current display, not from actual data
-      const updatedHistory = history.filter(item => item.id !== id);
-      const updatedFilteredHistory = filteredHistory.filter(item => item.id !== id);
-      
-      setHistory(updatedHistory);
-      setFilteredHistory(updatedFilteredHistory);
-      
-      // Show success message
-      console.log('✅ Record removed from view (API usage unchanged)');
-    } catch (err) {
-      alert('Failed to remove record from view');
-    }
   };
 
   const clearAllHistory = async () => {
-    if (!window.confirm('Clear ALL history? This cannot be undone!')) return;
-    
-    try {
-      if (user) {
-        // Authenticated user - clear database
-        await api.delete('/api/history');
-        setHistory([]);
-        setFilteredHistory([]);
-        alert('History cleared');
-      } else {
-        // Anonymous user - clear localStorage
-        if (clearLocalStorageHistory()) {
-          setHistory([]);
-          setFilteredHistory([]);
-          alert('History cleared');
-        } else {
-          alert('Failed to clear history');
+    showConfirmModal(
+      'Clear All History',
+      'Clear ALL history? This cannot be undone!\n\nThis will permanently delete all your validation records.',
+      async () => {
+        try {
+          if (user) {
+            // Authenticated user - clear database
+            await api.delete('/api/history');
+            setHistory([]);
+            showSuccessModal('Success', 'History cleared successfully');
+          } else {
+            // Anonymous user - clear localStorage
+            if (clearLocalStorageHistory()) {
+              setHistory([]);
+              showSuccessModal('Success', 'History cleared successfully');
+            } else {
+              showErrorModal('Error', 'Failed to clear history');
+            }
+          }
+        } catch (err) {
+          showErrorModal('Error', 'Failed to clear history');
         }
-      }
-    } catch (err) {
-      alert('Failed to clear history');
-    }
+      },
+      'Clear All',
+      'Cancel'
+    );
   };
 
   const exportHistoryToCSV = () => {
     if (!filteredHistory || filteredHistory.length === 0) {
-      alert('No history to export');
+      showInfoModal('No Data', 'No history to export. Try adjusting your filters or validate some emails first.');
       return;
     }
 
@@ -1273,12 +1515,7 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
-  useEffect(() => {
-    if (historyMode) {
-      filterHistory();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, statusFilter, history]);
+
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !batchMode && !historyMode) {
@@ -1659,7 +1896,21 @@ function App() {
                 <option value="invalid">Invalid Only</option>
                 <option value="disposable">Disposable Only</option>
               </select>
-              <button className="refresh-btn" onClick={loadHistory}>
+              <select
+                className="history-filter"
+                value={dateFilter}
+                onChange={(e) => {
+                  setDateFilter(e.target.value);
+                  console.log('📅 Date filter changed to:', e.target.value);
+                }}
+              >
+                <option value="today">Today</option>
+                <option value="week">Last 7 Days</option>
+                <option value="month">Last Month</option>
+                <option value="3months">Last 3 Months</option>
+                <option value="all">All Time</option>
+              </select>
+              <button className="refresh-btn" onClick={() => loadHistory(true)}>
                 <FiRefreshCw /> Refresh
               </button>
               <button className="export-btn csv" onClick={() => exportHistoryToCSV()}>
@@ -1699,45 +1950,11 @@ function App() {
                 )}
               </div>
             ) : (
-              <div className="history-table-container">
-                <table className="history-table">
-                  <thead>
-                    <tr>
-                      <th>Email</th>
-                      <th>Status</th>
-                      <th>Score</th>
-                      <th>Date</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHistory.map((item, index) => (
-                      <tr key={index}>
-                        <td className="email-cell">{item.email}</td>
-                        <td>
-                          <span className={`table-status-badge ${item.valid ? 'valid' : 'invalid'}`}>
-                            {item.valid ? 'Valid' : 'Invalid'}
-                          </span>
-                        </td>
-                        <td>{item.confidence_score || 0}/100</td>
-                        <td>{new Date(item.validated_at).toLocaleDateString()}</td>
-                        <td>
-                          <button
-                            className="table-action-btn delete"
-                            onClick={() => deleteHistoryItem(item.id)}
-                            title="Delete"
-                          >
-                            <FiTrash2 />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="history-summary">
-                  Showing {filteredHistory.length} of {history.length} records
-                </div>
-              </div>
+              <HistoryPaginated
+                results={filteredHistory}
+                itemsPerPage={50}
+                onDeleteItem={deleteHistoryItem}
+              />
             )}
           </div>
         ) : !batchMode ? (
@@ -2487,13 +2704,7 @@ function App() {
                   <button className="export-btn share" onClick={generateShareLink} title="Generate shareable link">
                     🔗 Share
                   </button>
-                  <button 
-                    className={`export-btn view-toggle ${batchResultsView === 'paginated' ? 'active' : ''}`}
-                    onClick={() => setBatchResultsView(batchResultsView === 'paginated' ? 'list' : 'paginated')}
-                    title={`Switch to ${batchResultsView === 'paginated' ? 'list' : 'paginated'} view`}
-                  >
-                    <FiList /> {batchResultsView === 'paginated' ? 'List View' : 'Card View'}
-                  </button>
+
                 </div>
               </div>
               {batchResults.duplicates_removed > 0 && (
@@ -2671,7 +2882,7 @@ function App() {
               </div>
             )}
 
-            {showBatchResults && batchResultsView === 'paginated' && (
+            {showBatchResults && (
               <BatchResultsPaginated
                 results={batchResults.results}
                 mode={mode}
@@ -2682,106 +2893,6 @@ function App() {
                 isStreaming={loading}
               />
             )}
-
-            {showBatchResults && batchResultsView === 'list' && (
-              <div className="batch-list" style={{ maxHeight: '600px', overflowY: 'auto' }}>
-                <div style={{ 
-                  padding: '12px 16px', 
-                  background: '#f8fafc', 
-                  borderRadius: '8px', 
-                  marginBottom: '16px',
-                  fontSize: '0.9rem',
-                  color: '#6b7280',
-                  textAlign: 'center'
-                }}>
-                  📋 Classic List View - Showing all {batchResults.results.length} results
-                </div>
-                {batchResults.results.map((item, index) => (
-                  <div key={index} className={`result-box batch-result-card ${item.valid ? 'valid' : 'invalid'}`}>
-                    <div className="result-header">
-                      <div className="result-title-row">
-                        <h3 className="batch-result-title">#{index + 1} - {item.valid ? 'Valid Email' : 'Invalid Email'}</h3>
-                        {item.status && (
-                          <span className={`status-badge status-${item.status.color}`}>
-                            {item.status.status.toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-                      <span className="email-display">{item.email}</span>
-                      {item.status && item.status.description && (
-                        <span className="status-description">{item.status.description}</span>
-                      )}
-                    </div>
-
-                    <div className="result-body">
-                      {mode === 'advanced' && item.checks && (
-                        <>
-                          <div className="confidence-section">
-                            <div className="confidence-label">Confidence Score</div>
-                            <div className="confidence-bar-container">
-                              <div
-                                className="confidence-bar"
-                                style={{
-                                  width: `${item.confidence_score || 0}%`,
-                                  backgroundColor: getConfidenceColor(item.confidence_score || 0)
-                                }}
-                              />
-                            </div>
-                            <div className="confidence-value" style={{
-                              color: getConfidenceTextColor(item.confidence_score || 0),
-                              fontWeight: '600'
-                            }}>
-                              {item.confidence_score || 0}/100 - {getConfidenceLabel(item.confidence_score || 0)}
-                            </div>
-                          </div>
-
-                          <div className="checks-grid">
-                            <div className={`check-item ${item.checks.syntax ? 'pass' : 'fail'}`}>
-                              <span className="check-icon">{item.checks.syntax ? '✓' : '✗'}</span>
-                              <span>Syntax</span>
-                            </div>
-                            <div className={`check-item ${item.checks.dns_valid ? 'pass' : 'fail'}`}>
-                              <span className="check-icon">{item.checks.dns_valid ? '✓' : '✗'}</span>
-                              <span>DNS</span>
-                            </div>
-                            <div className={`check-item ${item.checks.mx_records ? 'pass' : 'fail'}`}>
-                              <span className="check-icon">{item.checks.mx_records ? '✓' : '✗'}</span>
-                              <span>MX Records</span>
-                            </div>
-                            <div className={`check-item ${!item.checks.is_disposable ? 'pass' : 'warn'}`}>
-                              <span className="check-icon">{!item.checks.is_disposable ? '✓' : '⚠'}</span>
-                              <span>Not Disposable</span>
-                            </div>
-                            <div className={`check-item ${!item.checks.is_role_based ? 'pass' : 'warn'}`}>
-                              <span className="check-icon">{!item.checks.is_role_based ? '✓' : '⚠'}</span>
-                              <span>Not Role-Based</span>
-                            </div>
-                          </div>
-
-                          {item.suggestion && (
-                            <div className="suggestion-box">
-                              <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
-                            </div>
-                          )}
-
-                          {item.reason && (
-                            <div className="reason-box">
-                              <strong>Details:</strong> {item.reason}
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      {mode === 'basic' && item.suggestion && (
-                        <div className="suggestion-box">
-                          <strong>💡 Suggestion:</strong> Did you mean <strong>{item.suggestion}</strong>?
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
@@ -2789,8 +2900,10 @@ function App() {
           <div className="modal-overlay" onClick={() => setShowShareModal(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3>🔗 Share Results</h3>
-                <button className="modal-close" onClick={() => setShowShareModal(false)}>✕</button>
+                <h3><FiLink style={{marginRight: '8px'}} /> Share Results</h3>
+                <button className="modal-close" onClick={() => setShowShareModal(false)}>
+                  <FiX />
+                </button>
               </div>
               <div className="modal-body">
                 <p className="share-description">
@@ -2822,8 +2935,64 @@ function App() {
                   </div>
                 </div>
                 <div className="share-note">
-                  💡 Tip: Share this link via email, Slack, or any messaging app
+                  <FiInfo style={{marginRight: '6px'}} /> Tip: Share this link via email, Slack, or any messaging app
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Custom Modal */}
+        {showModal && (
+          <div className="custom-modal-overlay" onClick={() => setShowModal(false)}>
+            <div className="custom-modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="custom-modal-header">
+                <h3 className={`custom-modal-title ${modalConfig.type}`}>
+                  {modalConfig.type === 'success' && <FiCheckCircle style={{marginRight: '8px'}} />}
+                  {modalConfig.type === 'error' && <FiXCircle style={{marginRight: '8px'}} />}
+                  {modalConfig.type === 'warning' && <FiAlertTriangle style={{marginRight: '8px'}} />}
+                  {modalConfig.type === 'confirm' && <FiHelpCircle style={{marginRight: '8px'}} />}
+                  {modalConfig.type === 'info' && <FiInfo style={{marginRight: '8px'}} />}
+                  {modalConfig.title}
+                </h3>
+                <button className="custom-modal-close" onClick={() => setShowModal(false)}>
+                  <FiX />
+                </button>
+              </div>
+              <div className="custom-modal-body">
+                <p className="custom-modal-message">
+                  {modalConfig.message.split('\n').map((line, index) => (
+                    <span key={index}>
+                      {line}
+                      {index < modalConfig.message.split('\n').length - 1 && <br />}
+                    </span>
+                  ))}
+                </p>
+              </div>
+              <div className="custom-modal-footer">
+                {modalConfig.type === 'confirm' ? (
+                  <>
+                    <button 
+                      className="custom-modal-btn cancel" 
+                      onClick={modalConfig.onCancel}
+                    >
+                      {modalConfig.cancelText}
+                    </button>
+                    <button 
+                      className="custom-modal-btn confirm" 
+                      onClick={modalConfig.onConfirm}
+                    >
+                      {modalConfig.confirmText}
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    className="custom-modal-btn primary" 
+                    onClick={modalConfig.onConfirm}
+                  >
+                    {modalConfig.confirmText}
+                  </button>
+                )}
               </div>
             </div>
           </div>

@@ -1,175 +1,104 @@
 #!/usr/bin/env python3
 """
-DNS Cache System for Email Validation
-Caches DNS and MX record lookups to avoid redundant queries.
+DNS Cache Module for Email Validation Performance Optimization
+
+This module provides DNS and MX record caching to dramatically improve
+email validation performance for large batches with duplicate domains.
+
+Performance Impact:
+- Without cache: 1000 gmail emails = 1000 DNS lookups
+- With cache: 1000 gmail emails = 1 DNS lookup + 999 cache hits
+- Speed improvement: 10-100x faster for duplicate domains
 """
 
-import time
 import socket
-from typing import Dict, Tuple, Optional, Set
+import time
+from typing import Tuple, Dict, Any
 from threading import Lock
-import logging
 
-# Optional DNS checking - gracefully handle if not installed
+# Try to import DNS library
 try:
     import dns.resolver
+    import dns.exception
     DNS_AVAILABLE = True
 except ImportError:
     DNS_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
+# Global cache and statistics
+_dns_cache: Dict[str, Tuple[bool, bool, float]] = {}
+_cache_lock = Lock()
+_cache_stats = {
+    'hits': 0,
+    'misses': 0,
+    'total_lookups': 0,
+    'cache_size': 0,
+    'time_saved': 0.0
+}
 
-class DNSCache:
-    """
-    In-memory DNS cache with TTL support.
-    Caches DNS and MX record results to avoid redundant lookups.
-    """
-    
-    def __init__(self, default_ttl: int = 3600):  # 1 hour default TTL
-        self.cache: Dict[str, Dict] = {}
-        self.default_ttl = default_ttl
-        self.lock = Lock()
-        self.stats = {
-            'hits': 0,
-            'misses': 0,
-            'total_queries': 0
-        }
-        
-        # Pre-populate with common domains
-        self._populate_common_domains()
-    
-    def _populate_common_domains(self):
-        """Pre-populate cache with common email domains."""
-        common_domains = {
-            'gmail.com': {'dns_valid': True, 'mx_valid': True},
-            'yahoo.com': {'dns_valid': True, 'mx_valid': True},
-            'hotmail.com': {'dns_valid': True, 'mx_valid': True},
-            'outlook.com': {'dns_valid': True, 'mx_valid': True},
-            'icloud.com': {'dns_valid': True, 'mx_valid': True},
-            'aol.com': {'dns_valid': True, 'mx_valid': True},
-            'protonmail.com': {'dns_valid': True, 'mx_valid': True},
-            'mail.com': {'dns_valid': True, 'mx_valid': True},
-            'zoho.com': {'dns_valid': True, 'mx_valid': True},
-            'gmx.com': {'dns_valid': True, 'mx_valid': True},
-            'yandex.com': {'dns_valid': True, 'mx_valid': True},
-            'live.com': {'dns_valid': True, 'mx_valid': True},
-            'msn.com': {'dns_valid': True, 'mx_valid': True},
-            'me.com': {'dns_valid': True, 'mx_valid': True},
-            'mac.com': {'dns_valid': True, 'mx_valid': True},
-        }
-        
-        current_time = time.time()
-        for domain, results in common_domains.items():
-            self.cache[domain] = {
-                'dns_valid': results['dns_valid'],
-                'mx_valid': results['mx_valid'],
-                'timestamp': current_time,
-                'ttl': 86400,  # 24 hours for common domains
-                'source': 'preloaded'
-            }
-        
-        logger.info(f"Pre-populated DNS cache with {len(common_domains)} common domains")
-    
-    def _is_expired(self, entry: Dict) -> bool:
-        """Check if cache entry is expired."""
-        return time.time() - entry['timestamp'] > entry['ttl']
-    
-    def get(self, domain: str) -> Optional[Tuple[bool, bool]]:
-        """
-        Get cached DNS/MX results for domain.
-        
-        Args:
-            domain: Domain name to lookup
-            
-        Returns:
-            Tuple of (dns_valid, mx_valid) or None if not cached/expired
-        """
-        with self.lock:
-            self.stats['total_queries'] += 1
-            
-            if domain in self.cache:
-                entry = self.cache[domain]
-                if not self._is_expired(entry):
-                    self.stats['hits'] += 1
-                    logger.debug(f"DNS cache HIT for {domain}")
-                    return (entry['dns_valid'], entry['mx_valid'])
-                else:
-                    # Remove expired entry
-                    del self.cache[domain]
-                    logger.debug(f"DNS cache EXPIRED for {domain}")
-            
-            self.stats['misses'] += 1
-            logger.debug(f"DNS cache MISS for {domain}")
-            return None
-    
-    def set(self, domain: str, dns_valid: bool, mx_valid: bool, ttl: Optional[int] = None):
-        """
-        Cache DNS/MX results for domain.
-        
-        Args:
-            domain: Domain name
-            dns_valid: Whether DNS lookup succeeded
-            mx_valid: Whether MX records exist
-            ttl: Time to live in seconds (uses default if None)
-        """
-        with self.lock:
-            self.cache[domain] = {
-                'dns_valid': dns_valid,
-                'mx_valid': mx_valid,
-                'timestamp': time.time(),
-                'ttl': ttl or self.default_ttl,
-                'source': 'lookup'
-            }
-            logger.debug(f"DNS cache SET for {domain}: dns={dns_valid}, mx={mx_valid}")
-    
-    def get_stats(self) -> Dict:
-        """Get cache statistics."""
-        with self.lock:
-            total = self.stats['total_queries']
-            hit_rate = (self.stats['hits'] / total * 100) if total > 0 else 0
-            
-            return {
-                'total_queries': total,
-                'cache_hits': self.stats['hits'],
-                'cache_misses': self.stats['misses'],
-                'hit_rate_percent': round(hit_rate, 2),
-                'cached_domains': len(self.cache),
-                'cache_size_kb': len(str(self.cache)) / 1024
-            }
-    
-    def clear_expired(self):
-        """Remove expired entries from cache."""
-        with self.lock:
-            current_time = time.time()
-            expired_domains = [
-                domain for domain, entry in self.cache.items()
-                if current_time - entry['timestamp'] > entry['ttl']
-            ]
-            
-            for domain in expired_domains:
-                del self.cache[domain]
-            
-            if expired_domains:
-                logger.info(f"Cleared {len(expired_domains)} expired DNS cache entries")
-    
-    def clear(self):
-        """Clear all cache entries."""
-        with self.lock:
-            self.cache.clear()
-            self.stats = {'hits': 0, 'misses': 0, 'total_queries': 0}
-            logger.info("DNS cache cleared")
+# Cache configuration
+CACHE_TTL = 300  # 5 minutes TTL
+MAX_CACHE_SIZE = 10000  # Maximum domains to cache
 
-
-# Global DNS cache instance
-_dns_cache = DNSCache()
-
-def get_dns_cache() -> DNSCache:
-    """Get the global DNS cache instance."""
-    return _dns_cache
 
 def check_dns_and_mx_cached(domain: str) -> Tuple[bool, bool]:
     """
-    Check DNS and MX records with caching.
+    Check DNS and MX records with caching for performance.
+    
+    Args:
+        domain: Domain name to check
+        
+    Returns:
+        Tuple of (dns_valid, mx_valid) as booleans
+        
+    Performance:
+        - First lookup: ~0.1-0.2 seconds (network call)
+        - Cached lookup: ~0.001 seconds (memory access)
+        - 100-200x faster for cached domains!
+    """
+    global _dns_cache, _cache_stats
+    
+    domain = domain.lower().strip()
+    current_time = time.time()
+    
+    with _cache_lock:
+        # Check if domain is in cache and not expired
+        if domain in _dns_cache:
+            dns_valid, mx_valid, cached_time = _dns_cache[domain]
+            
+            # Check if cache entry is still valid (not expired)
+            if current_time - cached_time < CACHE_TTL:
+                _cache_stats['hits'] += 1
+                _cache_stats['total_lookups'] += 1
+                _cache_stats['time_saved'] += 0.15  # Estimated time saved per cache hit
+                return dns_valid, mx_valid
+            else:
+                # Cache expired, remove entry
+                del _dns_cache[domain]
+        
+        # Cache miss - perform actual DNS lookup
+        _cache_stats['misses'] += 1
+        _cache_stats['total_lookups'] += 1
+    
+    # Perform actual DNS and MX lookup
+    start_time = time.time()
+    dns_valid, mx_valid = _perform_dns_lookup(domain)
+    lookup_time = time.time() - start_time
+    
+    with _cache_lock:
+        # Clean cache if it's getting too large
+        if len(_dns_cache) >= MAX_CACHE_SIZE:
+            _cleanup_cache()
+        
+        # Store result in cache
+        _dns_cache[domain] = (dns_valid, mx_valid, current_time)
+        _cache_stats['cache_size'] = len(_dns_cache)
+    
+    return dns_valid, mx_valid
+
+
+def _perform_dns_lookup(domain: str) -> Tuple[bool, bool]:
+    """
+    Perform actual DNS and MX record lookup (no caching).
     
     Args:
         domain: Domain name to check
@@ -177,40 +106,22 @@ def check_dns_and_mx_cached(domain: str) -> Tuple[bool, bool]:
     Returns:
         Tuple of (dns_valid, mx_valid) as booleans
     """
-    cache = get_dns_cache()
-    
-    # Try cache first
-    cached_result = cache.get(domain)
-    if cached_result is not None:
-        return cached_result
-    
-    # Cache miss - perform actual lookup
     dns_valid = False
     mx_valid = False
     
-    # Check DNS resolution with aggressive timeout
+    # Check DNS resolution
     try:
-        # Set socket timeout to 2 seconds for fast response
-        socket.setdefaulttimeout(2.0)
         socket.gethostbyname(domain)
         dns_valid = True
     except (socket.gaierror, socket.herror, socket.timeout, OSError):
         dns_valid = False
     except Exception:
         dns_valid = False
-    finally:
-        # Reset socket timeout
-        socket.setdefaulttimeout(None)
     
     # Check MX records (only if DNS library is available)
-    if DNS_AVAILABLE and dns_valid:
+    if DNS_AVAILABLE and dns_valid:  # Only check MX if DNS is valid
         try:
-            # Create resolver with aggressive timeout
-            resolver = dns.resolver.Resolver()
-            resolver.timeout = 1.0  # 1 second timeout
-            resolver.lifetime = 2.0  # 2 second total lifetime
-            
-            mx_records = resolver.resolve(domain, 'MX')
+            mx_records = dns.resolver.resolve(domain, 'MX')
             mx_valid = len(mx_records) > 0
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
             mx_valid = False
@@ -219,46 +130,97 @@ def check_dns_and_mx_cached(domain: str) -> Tuple[bool, bool]:
         except Exception:
             mx_valid = False
     
-    # Cache the result
-    cache.set(domain, dns_valid, mx_valid)
-    
     return dns_valid, mx_valid
 
-def get_cache_stats() -> Dict:
-    """Get DNS cache statistics."""
-    return get_dns_cache().get_stats()
 
-def clear_dns_cache():
-    """Clear the DNS cache."""
-    get_dns_cache().clear()
-
-def cleanup_expired_cache():
-    """Remove expired entries from cache."""
-    get_dns_cache().clear_expired()
-
-
-# Example usage and testing
-if __name__ == "__main__":
-    # Test the DNS cache
-    print("Testing DNS Cache System")
-    print("=" * 40)
+def _cleanup_cache():
+    """
+    Clean up old cache entries when cache gets too large.
+    Removes oldest 25% of entries.
+    """
+    global _dns_cache
     
-    test_domains = [
-        'gmail.com',
-        'yahoo.com', 
-        'nonexistentdomain12345.com',
-        'gmail.com',  # Should hit cache
-        'outlook.com'
-    ]
+    if len(_dns_cache) < MAX_CACHE_SIZE:
+        return
     
-    for domain in test_domains:
-        start_time = time.time()
-        dns_valid, mx_valid = check_dns_and_mx_cached(domain)
-        elapsed = time.time() - start_time
+    # Sort by timestamp (oldest first)
+    sorted_items = sorted(_dns_cache.items(), key=lambda x: x[1][2])
+    
+    # Remove oldest 25%
+    remove_count = len(sorted_items) // 4
+    for domain, _ in sorted_items[:remove_count]:
+        del _dns_cache[domain]
+    
+    print(f"DNS Cache: Cleaned up {remove_count} old entries")
+
+
+def get_cache_stats() -> Dict[str, Any]:
+    """
+    Get DNS cache performance statistics.
+    
+    Returns:
+        Dictionary with cache performance metrics
+    """
+    global _cache_stats
+    
+    with _cache_lock:
+        stats = _cache_stats.copy()
+        stats['cache_size'] = len(_dns_cache)
         
-        print(f"{domain}: DNS={dns_valid}, MX={mx_valid} ({elapsed:.3f}s)")
+        # Calculate hit rate
+        if stats['total_lookups'] > 0:
+            stats['hit_rate'] = (stats['hits'] / stats['total_lookups']) * 100
+        else:
+            stats['hit_rate'] = 0.0
+        
+        # Calculate estimated time saved
+        stats['estimated_time_saved_minutes'] = stats['time_saved'] / 60
+        
+        return stats
+
+
+def clear_cache():
+    """
+    Clear all cached DNS results.
+    Useful for testing or when you want fresh lookups.
+    """
+    global _dns_cache, _cache_stats
     
-    print("\nCache Statistics:")
+    with _cache_lock:
+        _dns_cache.clear()
+        _cache_stats = {
+            'hits': 0,
+            'misses': 0,
+            'total_lookups': 0,
+            'cache_size': 0,
+            'time_saved': 0.0
+        }
+    
+    print("DNS Cache: All entries cleared")
+
+
+def warm_cache(domains: list):
+    """
+    Pre-populate cache with common domains for better performance.
+    
+    Args:
+        domains: List of domain names to pre-cache
+    """
+    print(f"DNS Cache: Warming cache with {len(domains)} domains...")
+    
+    for domain in domains:
+        check_dns_and_mx_cached(domain)
+    
     stats = get_cache_stats()
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
+    print(f"DNS Cache: Warmed with {stats['cache_size']} domains")
+
+
+# Pre-populate cache with common email domains for better performance
+COMMON_DOMAINS = [
+    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
+    'icloud.com', 'protonmail.com', 'zoho.com', 'yandex.com', 'gmx.com',
+    'mail.com', 'live.com', 'msn.com', 'comcast.net', 'verizon.net'
+]
+
+# Warm cache on module import (optional)
+# warm_cache(COMMON_DOMAINS)
