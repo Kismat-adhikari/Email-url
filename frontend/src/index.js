@@ -8,6 +8,8 @@ import Testing from './Testing';
 import Login from './Login';
 import Signup from './Signup';
 import Profile from './Profile';
+import TeamManagement from './TeamManagement';
+import TeamInvite from './TeamInvite';
 import AdminLogin from './AdminLogin';
 import AdminDashboard from './AdminDashboard';
 import ErrorBoundary from './ErrorBoundary';
@@ -23,6 +25,8 @@ root.render(
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/team" element={<TeamManagement />} />
+          <Route path="/invite/:token" element={<TeamInvite />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
         </Routes>

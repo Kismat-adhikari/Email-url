@@ -27,6 +27,10 @@ from datetime import datetime, timedelta
 # Import admin system
 from admin_simple import register_admin_routes
 
+# Import team system
+from team_api import team_bp
+from team_manager import team_manager
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +47,9 @@ CORS(app)
 
 # Register admin routes immediately after app creation
 register_admin_routes(app)
+
+# Register team routes
+app.register_blueprint(team_bp)
 
 # Rate limiting configuration
 RATE_LIMIT_WINDOW = 60  # seconds
@@ -1162,19 +1169,39 @@ def get_current_user():
                 'message': 'User account no longer exists'
             }), 404
         
+        # Check if user is in a team (team membership gives Pro access)
+        effective_subscription_tier = user['subscription_tier']
+        team_info = None
+        
+        if user.get('team_id'):
+            # User is in a team, they get Pro-level access
+            effective_subscription_tier = 'pro'
+            
+            # Get team information
+            try:
+                team_result = storage.client.table('team_dashboard').select('*').eq('id', user['team_id']).execute()
+                if team_result.data:
+                    team_info = team_result.data[0]
+            except:
+                pass  # If team query fails, continue without team info
+        
         # Return user data (exclude sensitive fields)
         user_response = {
             'id': user['id'],
             'email': user['email'],
             'firstName': user['first_name'],
             'lastName': user['last_name'],
-            'subscriptionTier': user['subscription_tier'],
+            'subscriptionTier': effective_subscription_tier,  # This now considers team membership
+            'originalSubscriptionTier': user['subscription_tier'],  # Original individual tier
             'apiKey': user.get('api_key'),
             'apiCallsLimit': user['api_calls_limit'],
             'apiCallsCount': user['api_calls_count'],
             'isVerified': user['is_verified'],
             'createdAt': user['created_at'],
-            'lastLogin': user.get('last_login')
+            'lastLogin': user.get('last_login'),
+            'teamId': user.get('team_id'),
+            'teamRole': user.get('team_role'),
+            'teamInfo': team_info
         }
         
         return jsonify({
@@ -1389,26 +1416,52 @@ def validate_email():
                     'suspended': True
                 }), 403
                 
-            # Check API limits using new tier-aware system
+            # Check API limits - team quota takes priority over individual quota
             is_admin = is_admin_request()
-            can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
             
-            if not can_validate:
-                subscription_tier = authenticated_user.get('subscription_tier', 'free')
-                if subscription_tier == 'free':
-                    message = f'You have reached your daily limit of {limit} API calls. Come back tomorrow or upgrade to Starter for 10K calls per month!'
-                elif subscription_tier == 'starter':
-                    message = f'You have reached your monthly limit of {limit:,} API calls. Upgrade to Pro for 10M lifetime calls!'
-                else:  # pro
-                    message = f'You have reached your lifetime limit of {limit:,} API calls. Contact support for enterprise options.'
+            # Check if user is in a team (team quota overrides individual quota)
+            team_info = team_manager.get_user_team(user_id)
+            if team_info and team_info['team']['is_active']:
+                # Use team quota
+                team_id = team_info['team']['id']
+                can_validate = team_manager.check_team_quota(team_id, 1)
                 
-                return jsonify({
-                    'error': 'API limit exceeded',
-                    'message': message,
-                    'current_usage': current_usage,
-                    'limit': limit,
-                    'subscription_tier': subscription_tier
-                }), 429
+                if not can_validate:
+                    team_usage = team_manager.get_team_usage(team_id)
+                    if team_usage['success']:
+                        usage_data = team_usage['usage']
+                        return jsonify({
+                            'error': 'Team quota exceeded',
+                            'message': f'Your team has reached the monthly limit of {usage_data["quota_limit"]:,} validations. Quota resets in {usage_data["days_until_reset"]} days.',
+                            'current_usage': usage_data['quota_used'],
+                            'limit': usage_data['quota_limit'],
+                            'usage_percentage': usage_data['usage_percentage'],
+                            'team_name': team_info['team']['name'],
+                            'is_team_quota': True
+                        }), 429
+                    else:
+                        return jsonify({'error': 'Unable to check team quota'}), 500
+            else:
+                # Use individual quota
+                can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
+                
+                if not can_validate:
+                    subscription_tier = authenticated_user.get('subscription_tier', 'free')
+                    if subscription_tier == 'free':
+                        message = f'You have reached your daily limit of {limit} API calls. Come back tomorrow or upgrade to Pro for 10K calls per month!'
+                    elif subscription_tier == 'starter':
+                        message = f'You have reached your monthly limit of {limit:,} API calls. Upgrade to Pro for 10M lifetime calls!'
+                    else:  # pro
+                        message = f'You have reached your lifetime limit of {limit:,} API calls. Contact support for enterprise options.'
+                    
+                    return jsonify({
+                        'error': 'API limit exceeded',
+                        'message': message,
+                        'current_usage': current_usage,
+                        'limit': limit,
+                        'subscription_tier': subscription_tier,
+                        'is_team_quota': False
+                    }), 429
                 
         except ValueError as e:
             return jsonify({
@@ -1560,9 +1613,15 @@ def validate_email():
             
             # Only store in database for authenticated users
             # Free users should use localStorage only (privacy-first approach)
+            # Get team_id if user is in a team
+            team_id = None
+            if team_info and team_info['team']['is_active']:
+                team_id = team_info['team']['id']
+            
             record = storage.create_record({
                 'anon_user_id': anon_user_id,
                 'user_id': user_id,  # Always present for authenticated users
+                'team_id': team_id,  # Include team_id if user is in a team
                 'email': email,
                 'valid': result['valid'],
                 'confidence_score': result.get('confidence_score', 0),
@@ -1578,14 +1637,34 @@ def validate_email():
             # Increment API usage for authenticated users (skip for admins)
             if authenticated_user and not is_admin:
                 try:
-                    storage.increment_api_usage(user_id, 1)
-                    new_count = authenticated_user['api_calls_count'] + 1
-                    result['api_usage'] = {
-                        'calls_used': new_count,
-                        'calls_limit': authenticated_user['api_calls_limit'],
-                        'calls_remaining': authenticated_user['api_calls_limit'] - new_count
-                    }
-                    logger.info(f"API usage incremented for user {user_id}: {new_count}/{authenticated_user['api_calls_limit']}")
+                    # Check if user is in a team - increment team quota instead of individual
+                    if team_info and team_info['team']['is_active']:
+                        team_id = team_info['team']['id']
+                        team_manager.use_team_quota(team_id, 1)
+                        
+                        # Get updated team usage for response
+                        team_usage = team_manager.get_team_usage(team_id)
+                        if team_usage['success']:
+                            usage_data = team_usage['usage']
+                            result['api_usage'] = {
+                                'calls_used': usage_data['quota_used'],
+                                'calls_limit': usage_data['quota_limit'],
+                                'calls_remaining': usage_data['quota_limit'] - usage_data['quota_used'],
+                                'team_name': team_info['team']['name'],
+                                'is_team_quota': True
+                            }
+                        logger.info(f"Team quota incremented for team {team_id} (user {user_id})")
+                    else:
+                        # Use individual quota
+                        storage.increment_api_usage(user_id, 1)
+                        new_count = authenticated_user['api_calls_count'] + 1
+                        result['api_usage'] = {
+                            'calls_used': new_count,
+                            'calls_limit': authenticated_user['api_calls_limit'],
+                            'calls_remaining': authenticated_user['api_calls_limit'] - new_count,
+                            'is_team_quota': False
+                        }
+                        logger.info(f"API usage incremented for user {user_id}: {new_count}/{authenticated_user['api_calls_limit']}")
                 except Exception as e:
                     logger.error(f"Failed to increment API usage: {str(e)}")
             elif is_admin:

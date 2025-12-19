@@ -106,6 +106,7 @@ class SupabaseStorage:
         record = {
             'anon_user_id': validation_data['anon_user_id'],
             'user_id': validation_data.get('user_id'),  # Optional - for authenticated users
+            'team_id': validation_data.get('team_id'),  # Optional - for team members
             'email': validation_data['email'].lower().strip(),
             'valid': validation_data['valid'],
             'confidence_score': validation_data['confidence_score'],

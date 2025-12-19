@@ -10,7 +10,7 @@ import {
   FiZap, FiCpu, FiInbox, FiList, FiClock, FiAlertTriangle,
   FiAlertCircle, FiFileText, FiSend,
   FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut,
-  FiInfo, FiHelpCircle, FiX, FiLink
+  FiInfo, FiHelpCircle, FiX, FiLink, FiUsers
 } from 'react-icons/fi';
 import EmailComposer from './EmailComposer';
 import BatchResultsPaginated from './BatchResultsPaginated';
@@ -381,7 +381,61 @@ function App() {
     };
 
     refreshUserData();
-  }, [authToken, user, handleLogout]); // Run once on app load
+    
+    // Set up periodic refresh every 15 seconds to catch team changes
+    const userRefreshInterval = setInterval(() => {
+      if (authToken && user) {
+        refreshUserData();
+      }
+    }, 15000); // Refresh every 15 seconds
+    
+    // Refresh when page becomes visible (user comes back from invitation)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && authToken && user) {
+        refreshUserData();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Cleanup
+    return () => {
+      clearInterval(userRefreshInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [authToken, user, handleLogout, api]); // Run once on app load
+
+  // Check for team join success and refresh user data immediately
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('joined') === 'success' && authToken && user) {
+      console.log('🎉 Team join detected, refreshing user data immediately...');
+      
+      // Immediate refresh for team join
+      const immediateRefresh = async () => {
+        try {
+          const response = await api.get('/api/auth/me');
+          if (response.status === 200) {
+            const updatedUser = response.data.user;
+            setUser(updatedUser);
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            console.log('✅ User data updated after team join - now Pro tier!');
+            
+            // Show success message
+            showInfoModal('Welcome to the Team!', 'You now have Pro access with shared team quota. Your subscription tier has been updated.');
+          }
+        } catch (error) {
+          console.error('Failed to refresh user data after team join:', error);
+        }
+      };
+      
+      immediateRefresh();
+      
+      // Clean up URL parameter
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    }
+  }, [authToken, user, api, showInfoModal]);
 
   // Helper function for immediate suspension checking
   const checkUserStatus = useCallback(async (forceCheck = false) => {
@@ -1664,6 +1718,9 @@ function App() {
               <div className="auth-buttons">
                 <button className="navbar-btn profile-btn" onClick={() => navigate('/profile')}>
                   <FiUser /> Profile
+                </button>
+                <button className="navbar-btn team-btn" onClick={() => navigate('/team')}>
+                  <FiUsers /> Team
                 </button>
                 <button className="navbar-btn logout-btn" onClick={handleLogout}>
                   <FiLogOut /> Logout

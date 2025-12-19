@@ -1,0 +1,495 @@
+.team-management {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.team-header {
+    margin-bottom: 30px;
+}
+
+.team-header h2 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.error-message {
+    background: #fee;
+    color: #c33;
+    padding: 12px;
+    border-radius: 6px;
+    margin: 10px 0;
+    border: 1px solid #fcc;
+}
+
+.success-message {
+    background: #efe;
+    color: #363;
+    padding: 12px;
+    border-radius: 6px;
+    margin: 10px 0;
+    border: 1px solid #cfc;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+/* No Team Section */
+.no-team-section {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 30px;
+    text-align: center;
+}
+
+.team-benefits h3 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+}
+
+.benefits-list {
+    margin: 20px 0;
+}
+
+.benefit {
+    padding: 8px 0;
+    color: #27ae60;
+    font-weight: 500;
+}
+
+.create-team-btn {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.create-team-btn:hover {
+    background: #2980b9;
+}
+
+/* Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal {
+    background: white;
+    border-radius: 12px;
+    padding: 0;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #999;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-btn:hover {
+    color: #666;
+}
+
+.modal form {
+    padding: 24px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.form-group input,
+.form-group textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+}
+
+.modal-actions button {
+    padding: 10px 20px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.modal-actions button.primary {
+    background: #3498db;
+    color: white;
+    border-color: #3498db;
+}
+
+.modal-actions button.primary:hover {
+    background: #2980b9;
+}
+
+/* Team Dashboard */
+.team-dashboard {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.team-overview {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-bottom: 30px;
+}
+
+.team-info h3 {
+    color: #2c3e50;
+    margin-bottom: 8px;
+}
+
+.team-description {
+    color: #666;
+    margin-bottom: 20px;
+}
+
+.team-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.stat {
+    display: flex;
+    justify-content: space-between;
+}
+
+.stat .label {
+    color: #666;
+}
+
+.stat .value {
+    font-weight: 500;
+}
+
+.stat .value.role {
+    text-transform: capitalize;
+    color: #3498db;
+}
+
+/* Quota Info */
+.quota-info h4 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+}
+
+.quota-bar {
+    width: 100%;
+    height: 8px;
+    background: #ecf0f1;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.quota-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #27ae60, #f39c12, #e74c3c);
+    transition: width 0.3s ease;
+}
+
+.quota-details {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.quota-reset {
+    font-size: 12px;
+    color: #999;
+    margin: 0;
+}
+
+/* Team Actions */
+.team-actions {
+    margin-bottom: 30px;
+}
+
+.invite-btn {
+    background: #27ae60;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.invite-btn:hover {
+    background: #229954;
+}
+
+/* Team Members */
+.team-members h4 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+}
+
+.members-list {
+    display: grid;
+    gap: 12px;
+}
+
+.member-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+.member-info {
+    flex: 1;
+}
+
+.member-name {
+    font-weight: 500;
+    color: #2c3e50;
+    margin-bottom: 4px;
+}
+
+.member-email {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.member-role {
+    font-size: 12px;
+    text-transform: capitalize;
+    color: #3498db;
+    font-weight: 500;
+}
+
+.member-stats {
+    color: #666;
+    font-size: 14px;
+    margin-right: 15px;
+}
+
+.remove-btn {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.remove-btn:hover {
+    background: #c0392b;
+}
+
+/* Pending Invitations */
+.pending-invitations {
+    margin-top: 30px;
+}
+
+.pending-invitations h4 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+}
+
+.invitations-list {
+    display: grid;
+    gap: 12px;
+}
+
+.invitation-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    background: #fff3cd;
+    border-radius: 8px;
+    border: 1px solid #ffeaa7;
+}
+
+.invite-email {
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.invite-date,
+.invite-expires {
+    font-size: 12px;
+    color: #666;
+}
+
+/* Danger Zone */
+.danger-zone {
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 1px solid #eee;
+}
+
+.danger-zone h4 {
+    color: #e74c3c;
+    margin-bottom: 15px;
+}
+
+.leave-team-btn {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.leave-team-btn:hover {
+    background: #c0392b;
+}
+
+.warning {
+    font-size: 14px;
+    color: #666;
+    margin: 0;
+}
+
+/* Not Eligible */
+.not-eligible {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 30px;
+    text-align: center;
+}
+
+.not-eligible h3 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+}
+
+.upgrade-prompt {
+    margin-top: 20px;
+}
+
+.upgrade-prompt ul {
+    text-align: left;
+    display: inline-block;
+    margin: 15px 0;
+}
+
+.upgrade-prompt li {
+    margin: 8px 0;
+    color: #666;
+}
+
+.upgrade-btn {
+    background: #f39c12;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.upgrade-btn:hover {
+    background: #e67e22;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .team-management {
+        padding: 15px;
+    }
+    
+    .team-overview {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+    
+    .member-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .member-stats {
+        margin-right: 0;
+    }
+    
+    .modal {
+        width: 95%;
+        margin: 20px;
+    }
+}

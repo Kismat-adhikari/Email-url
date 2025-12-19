@@ -44,8 +44,40 @@ function Login() {
         localStorage.setItem('authToken', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         
-        // Redirect to main app
-        window.location.href = '/';
+        // Check if there's a pending invitation to accept
+        const returnUrl = localStorage.getItem('returnUrl');
+        if (returnUrl && returnUrl.includes('/invite/')) {
+          // Extract invitation token from URL
+          const inviteToken = returnUrl.split('/invite/')[1];
+          
+          // Automatically accept the invitation
+          try {
+            const inviteResponse = await fetch(`/api/team/invite/${inviteToken}/accept`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${data.token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (inviteResponse.ok) {
+              // Clear the return URL
+              localStorage.removeItem('returnUrl');
+              // Redirect to team page with success message
+              window.location.href = '/team?joined=success';
+            } else {
+              // If invitation acceptance fails, still redirect but show the invitation page
+              window.location.href = returnUrl;
+            }
+          } catch (inviteErr) {
+            console.error('Failed to accept invitation:', inviteErr);
+            // Fallback to invitation page
+            window.location.href = returnUrl;
+          }
+        } else {
+          // Normal login flow - redirect to main app
+          window.location.href = '/';
+        }
       } else {
         // Handle suspension error specially
         if (response.status === 403 && data.error === 'Account suspended') {
