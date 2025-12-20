@@ -354,7 +354,7 @@ function App() {
       ...(adminMode && adminToken && { 'Authorization': `Bearer ${adminToken}` }),
       ...(!adminMode && authToken && { 'Authorization': `Bearer ${authToken}` })
     }
-  }), [anonUserId, adminMode, adminToken, authToken]);
+  }), [API_URL, anonUserId, adminMode, adminToken, authToken]);
 
   // Update API headers when auth token changes
   useEffect(() => {
@@ -550,7 +550,7 @@ function App() {
       setLastStatusCheck(now);
       return true; // Other errors, assume user is still active
     }
-  }, [user, authToken, api, handleLogout, lastStatusCheck]);
+  }, [user, authToken, api, handleLogout, lastStatusCheck, showErrorModal]);
 
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
@@ -676,7 +676,7 @@ function App() {
     if (user || (!user && !historyLoaded)) {
       loadHistory();
     }
-  }, [user, historyMode, loadHistory, historyLoaded]);
+  }, [user, historyMode, loadHistory, historyLoaded, api]);
 
   // Real-time suspension monitoring
   useEffect(() => {

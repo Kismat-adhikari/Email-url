@@ -11,10 +11,6 @@ const TeamInvite = () => {
     const [accepting, setAccepting] = useState(false);
     const [user, setUser] = useState(null);
 
-    useEffect(() => {
-        checkAuthAndLoadInvitation();
-    }, [token, checkAuthAndLoadInvitation]);
-
     const checkAuthAndLoadInvitation = useCallback(async () => {
         try {
             setLoading(true);
@@ -50,6 +46,10 @@ const TeamInvite = () => {
             setLoading(false);
         }
     }, [token]);
+
+    useEffect(() => {
+        checkAuthAndLoadInvitation();
+    }, [checkAuthAndLoadInvitation]);
 
     const acceptInvitation = async () => {
         const authToken = localStorage.getItem('authToken');

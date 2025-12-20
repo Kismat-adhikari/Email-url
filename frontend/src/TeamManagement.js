@@ -127,40 +127,6 @@ const TeamManagement = () => {
         }
     };
 
-    useEffect(() => {
-        // Initial load
-        checkUserStatus();
-        
-        // Real-time polling every 60 seconds for team updates (reduced to prevent token issues)
-        const interval = setInterval(() => {
-            if (!loading) {
-                checkUserStatus();
-            }
-        }, 60000); // Reduced frequency to prevent authentication issues
-        
-        // Immediate refresh when page becomes visible
-        const handleVisibilityChange = () => {
-            if (!document.hidden) {
-                checkUserStatus();
-            }
-        };
-        
-        // Immediate refresh when window gets focus
-        const handleFocus = () => {
-            checkUserStatus();
-        };
-        
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', handleFocus);
-        
-        // Cleanup interval and event listeners on unmount
-        return () => {
-            clearInterval(interval);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', handleFocus);
-        };
-    }, [checkUserStatus, loading]); // Include dependencies
-
     const getAuthHeaders = () => {
         return {
             'Authorization': `Bearer ${authToken}`,
@@ -253,7 +219,41 @@ const TeamManagement = () => {
         } finally {
             setLoading(false);
         }
-    }, [authToken, user, teamInfo, navigate]);
+    }, [authToken, user, teamInfo, navigate, getAuthHeaders]);
+
+    useEffect(() => {
+        // Initial load
+        checkUserStatus();
+        
+        // Real-time polling every 60 seconds for team updates (reduced to prevent token issues)
+        const interval = setInterval(() => {
+            if (!loading) {
+                checkUserStatus();
+            }
+        }, 60000); // Reduced frequency to prevent authentication issues
+        
+        // Immediate refresh when page becomes visible
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                checkUserStatus();
+            }
+        };
+        
+        // Immediate refresh when window gets focus
+        const handleFocus = () => {
+            checkUserStatus();
+        };
+        
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', handleFocus);
+        
+        // Cleanup interval and event listeners on unmount
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [checkUserStatus, loading]); // Include dependencies
 
     const createTeam = async (e) => {
         e.preventDefault();
