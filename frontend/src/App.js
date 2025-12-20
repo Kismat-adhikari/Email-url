@@ -347,14 +347,14 @@ function App() {
     : 'http://localhost:5000';
   
   // Create API instance with dynamic headers
-  const api = axios.create({
+  const api = useMemo(() => axios.create({
     baseURL: API_URL,
     headers: {
       'X-User-ID': anonUserId,
       ...(adminMode && adminToken && { 'Authorization': `Bearer ${adminToken}` }),
       ...(!adminMode && authToken && { 'Authorization': `Bearer ${authToken}` })
     }
-  });
+  }), [anonUserId, adminMode, adminToken, authToken]);
 
   // Update API headers when auth token changes
   useEffect(() => {
@@ -676,7 +676,7 @@ function App() {
     if (user || (!user && !historyLoaded)) {
       loadHistory();
     }
-  }, [user, historyMode, loadHistory]);
+  }, [user, historyMode, loadHistory, historyLoaded]);
 
   // Real-time suspension monitoring
   useEffect(() => {

@@ -13,7 +13,7 @@ const TeamInvite = () => {
 
     useEffect(() => {
         checkAuthAndLoadInvitation();
-    }, [token]);
+    }, [token, checkAuthAndLoadInvitation]);
 
     const checkAuthAndLoadInvitation = useCallback(async () => {
         try {
