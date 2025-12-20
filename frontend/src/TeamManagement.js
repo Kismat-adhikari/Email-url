@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUsers, FiUser, FiLogOut, FiMoon, FiSun, FiActivity, FiZap } from 'react-icons/fi';
 import './TeamManagement.css';
@@ -159,7 +159,7 @@ const TeamManagement = () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('focus', handleFocus);
         };
-    }, []); // Empty dependency array - only run once on mount
+    }, [checkUserStatus, loading]); // Include dependencies
 
     const getAuthHeaders = () => {
         return {
@@ -168,7 +168,7 @@ const TeamManagement = () => {
         };
     };
 
-    const checkUserStatus = async () => {
+    const checkUserStatus = useCallback(async () => {
         try {
             setLoading(true);
             setError(''); // Clear previous errors
@@ -253,7 +253,7 @@ const TeamManagement = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [authToken, user, teamInfo, navigate]);
 
     const createTeam = async (e) => {
         e.preventDefault();

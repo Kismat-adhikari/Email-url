@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { 
   FiChevronLeft, FiChevronRight, FiChevronsLeft, FiChevronsRight,
-  FiCheck, FiX, FiAlertTriangle, FiInfo, FiMail, FiShield, FiTrash2
+  FiCheck, FiX, FiAlertTriangle, FiInfo, FiMail, FiShield
 } from 'react-icons/fi';
 import './BatchResultsPaginated.css';
 

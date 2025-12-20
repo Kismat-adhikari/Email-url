@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import './TeamInvite.css';
 
@@ -15,7 +15,7 @@ const TeamInvite = () => {
         checkAuthAndLoadInvitation();
     }, [token]);
 
-    const checkAuthAndLoadInvitation = async () => {
+    const checkAuthAndLoadInvitation = useCallback(async () => {
         try {
             setLoading(true);
             
@@ -49,7 +49,7 @@ const TeamInvite = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [token]);
 
     const acceptInvitation = async () => {
         const authToken = localStorage.getItem('authToken');

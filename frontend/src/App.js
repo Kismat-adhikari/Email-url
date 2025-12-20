@@ -179,7 +179,7 @@ function App() {
   });
 
   // Modal helper functions
-  const showInfoModal = (title, message) => {
+  const showInfoModal = useCallback((title, message) => {
     setModalConfig({
       title,
       message,
@@ -190,9 +190,9 @@ function App() {
       cancelText: 'Cancel'
     });
     setShowModal(true);
-  };
+  }, []);
 
-  const showSuccessModal = (title, message) => {
+  const showSuccessModal = useCallback((title, message) => {
     setModalConfig({
       title,
       message,
@@ -203,9 +203,9 @@ function App() {
       cancelText: 'Cancel'
     });
     setShowModal(true);
-  };
+  }, []);
 
-  const showErrorModal = (title, message) => {
+  const showErrorModal = useCallback((title, message) => {
     setModalConfig({
       title,
       message,
@@ -216,9 +216,9 @@ function App() {
       cancelText: 'Cancel'
     });
     setShowModal(true);
-  };
+  }, []);
 
-  const showConfirmModal = (title, message, onConfirm, confirmText = 'Confirm', cancelText = 'Cancel') => {
+  const showConfirmModal = useCallback((title, message, onConfirm, confirmText = 'Confirm', cancelText = 'Cancel') => {
     setModalConfig({
       title,
       message,
@@ -232,7 +232,7 @@ function App() {
       cancelText
     });
     setShowModal(true);
-  };
+  }, []);
 
   
   // User status cache to avoid frequent API calls
