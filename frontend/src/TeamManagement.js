@@ -127,12 +127,12 @@ const TeamManagement = () => {
         }
     };
 
-    const getAuthHeaders = () => {
+    const getAuthHeaders = useCallback(() => {
         return {
             'Authorization': `Bearer ${authToken}`,
             'Content-Type': 'application/json'
         };
-    };
+    }, [authToken]);
 
     const checkUserStatus = useCallback(async () => {
         try {
