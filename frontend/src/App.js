@@ -1878,21 +1878,6 @@ function App() {
           </p>
         </header>
 
-        {/* Debug Panel (development only) */}
-        {process.env.NODE_ENV === 'development' && user && (
-          <div style={{
-            background: '#f8f9fa', 
-            border: '1px solid #dee2e6', 
-            borderRadius: '6px', 
-            padding: '12px', 
-            margin: '10px 0',
-            fontSize: '12px',
-            fontFamily: 'monospace'
-          }}>
-            <strong>🔍 Debug Info:</strong> Tier: {user.subscriptionTier} | Team: {user.teamId ? 'Yes' : 'No'} | Team ID: {user.teamId || 'None'}
-          </div>
-        )}
-
         {/* Main Card */}
         <div className="pro-main-card">
           {/* Tabs */}
