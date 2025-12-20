@@ -432,13 +432,34 @@ class TeamManager:
             return False
     
     def get_team_usage(self, team_id: str) -> Dict:
-        """Get team quota usage statistics"""
+        """Get team quota usage statistics - Direct from teams table"""
         try:
-            result = self.storage.client.table('team_dashboard').select('quota_used, quota_limit, usage_percentage, days_until_reset').eq('id', team_id).execute()
+            # Get data directly from teams table instead of team_dashboard view
+            result = self.storage.client.table('teams').select('quota_used, quota_limit, name').eq('id', team_id).eq('is_active', True).execute()
+            
             if result.data:
-                return {"success": True, "usage": result.data[0]}
+                team = result.data[0]
+                quota_used = team['quota_used'] or 0
+                quota_limit = team['quota_limit'] or 0
+                
+                # Calculate usage percentage
+                usage_percentage = (quota_used / quota_limit * 100) if quota_limit > 0 else 0
+                
+                usage_data = {
+                    'quota_used': quota_used,
+                    'quota_limit': quota_limit,
+                    'usage_percentage': round(usage_percentage, 2),
+                    'remaining': quota_limit - quota_used,
+                    'team_name': team['name']
+                    # Note: No 'days_until_reset' because this is lifetime quota
+                }
+                
+                return {"success": True, "usage": usage_data}
+            
             return {"success": False, "error": "Team not found"}
+            
         except Exception as e:
+            print(f"❌ Error getting team usage: {e}")
             return {"success": False, "error": f"Error getting usage: {str(e)}"}
     
     # ==================== HELPER METHODS ====================
