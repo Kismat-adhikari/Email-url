@@ -13,9 +13,59 @@ const TeamManagement = () => {
         return savedUser ? JSON.parse(savedUser) : null;
     });
     
-    const [authToken] = useState(() => {
+    // Update user when localStorage changes
+    useEffect(() => {
+        const handleStorageChange = () => {
+            const savedUser = localStorage.getItem('user');
+            const newUser = savedUser ? JSON.parse(savedUser) : null;
+            setUser(newUser);
+        };
+        
+        // Listen for storage changes
+        window.addEventListener('storage', handleStorageChange);
+        
+        // Also check periodically in case of same-tab changes
+        const interval = setInterval(() => {
+            const savedUser = localStorage.getItem('user');
+            const newUser = savedUser ? JSON.parse(savedUser) : null;
+            if (JSON.stringify(newUser) !== JSON.stringify(user)) {
+                setUser(newUser);
+            }
+        }, 1000);
+        
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            clearInterval(interval);
+        };
+    }, [user]);
+    
+    const [authToken, setAuthToken] = useState(() => {
         return localStorage.getItem('authToken');
     });
+    
+    // Update auth token when localStorage changes
+    useEffect(() => {
+        const handleStorageChange = () => {
+            const newToken = localStorage.getItem('authToken');
+            setAuthToken(newToken);
+        };
+        
+        // Listen for storage changes
+        window.addEventListener('storage', handleStorageChange);
+        
+        // Also check periodically in case of same-tab changes
+        const interval = setInterval(() => {
+            const newToken = localStorage.getItem('authToken');
+            if (newToken !== authToken) {
+                setAuthToken(newToken);
+            }
+        }, 1000);
+        
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            clearInterval(interval);
+        };
+    }, [authToken]);
     
     const [teamInfo, setTeamInfo] = useState(null);
     const [loading, setLoading] = useState(true);
