@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiUser, FiMail, FiCalendar, FiKey, FiSave, FiEdit3, FiActivity, FiAward, FiArrowLeft, FiLogOut, FiMoon, FiSun, FiZap } from 'react-icons/fi';
+import { FiUser, FiMail, FiCalendar, FiSave, FiEdit3, FiActivity, FiAward, FiArrowLeft, FiLogOut, FiMoon, FiSun, FiZap } from 'react-icons/fi';
 import './Profile.css';
 import { formatApiLimit, getCorrectApiLimit, getTierDisplayName, getUsagePercentage, formatApiUsageWithPeriod } from './utils/apiUtils';
 
@@ -20,8 +20,7 @@ const Profile = () => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    email: '',
-    sendgridApiKey: ''
+    email: ''
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
@@ -37,8 +36,7 @@ const Profile = () => {
       setFormData({
         firstName: user.firstName || '',
         lastName: user.lastName || '',
-        email: user.email || '',
-        sendgridApiKey: user.sendgridApiKey || ''
+        email: user.email || ''
       });
     }
   }, [user]);
@@ -122,12 +120,6 @@ const Profile = () => {
       month: 'long',
       day: 'numeric'
     });
-  };
-
-  const maskApiKey = (apiKey) => {
-    if (!apiKey) return 'Not set';
-    if (apiKey.length <= 8) return apiKey;
-    return apiKey.substring(0, 8) + '•'.repeat(apiKey.length - 8);
   };
 
   const handleLogout = async () => {
@@ -299,8 +291,7 @@ const Profile = () => {
               setFormData({
                 firstName: user.firstName || '',
                 lastName: user.lastName || '',
-                email: user.email || '',
-                sendgridApiKey: user.sendgridApiKey || ''
+                email: user.email || ''
               });
               setMessage(null);
             }
@@ -458,125 +449,6 @@ const Profile = () => {
             </div>
           </div>
         </div>
-
-        {/* Email Sending Configuration - Pro Feature */}
-        {user?.subscriptionTier === 'pro' && (
-          <div className={`profile-section email-config-section ${!user.sendgridApiKey ? 'setup-needed' : 'configured'}`}>
-            <div className="section-header">
-              <h3><FiMail /> Email Sending Configuration</h3>
-              {user.sendgridApiKey ? (
-                <span className="config-status configured">
-                  <FiZap /> Ready to Send
-                </span>
-              ) : (
-                <span className="config-status needs-setup">
-                  <FiKey /> Setup Required
-                </span>
-              )}
-            </div>
-            
-            {!user.sendgridApiKey && !isEditing && (
-              <div className="setup-prompt">
-                <div className="setup-icon">📧</div>
-                <h4>Unlock Email Sending</h4>
-                <p>Configure your SendGrid API key to start sending emails directly from the platform to your validated email addresses.</p>
-                <button 
-                  className="setup-cta-btn"
-                  onClick={() => setIsEditing(true)}
-                >
-                  <FiKey /> Configure SendGrid API Key
-                </button>
-              </div>
-            )}
-            
-            <div className="profile-grid">
-              <div className="profile-field full-width">
-                <label>SendGrid API Key</label>
-                <div className="api-key-field">
-                  {isEditing ? (
-                    <input
-                      type="password"
-                      placeholder="SG.your_sendgrid_api_key_here"
-                      value={formData.sendgridApiKey}
-                      onChange={(e) => setFormData(prev => ({ ...prev, sendgridApiKey: e.target.value }))}
-                      className="profile-input api-key-input"
-                    />
-                  ) : (
-                    <div className="profile-value api-key-display">
-                      {maskApiKey(user.sendgridApiKey)}
-                    </div>
-                  )}
-                </div>
-                <div className="field-help">
-                  {isEditing ? (
-                    <div className="setup-instructions">
-                      <p><strong>How to get your SendGrid API key:</strong></p>
-                      <ol>
-                        <li>Create a free account at <a href="https://sendgrid.com" target="_blank" rel="noopener noreferrer">sendgrid.com</a></li>
-                        <li>Go to Settings → API Keys in your SendGrid dashboard</li>
-                        <li>Click "Create API Key" and choose "Full Access"</li>
-                        <li>Copy the API key (starts with "SG.") and paste it above</li>
-                        <li>Click "Save Changes" to enable email sending</li>
-                      </ol>
-                      <div className="security-note">
-                        <FiKey /> Your API key is encrypted and stored securely
-                      </div>
-                    </div>
-                  ) : (
-                    <p>
-                      {user.sendgridApiKey 
-                        ? "✅ SendGrid configured - You can now send emails from the Email Composer"
-                        : "Configure your SendGrid API key to enable email sending features"
-                      }
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {user.sendgridApiKey && (
-              <div className="email-features-info">
-                <h4>🚀 Available Email Features:</h4>
-                <div className="features-grid">
-                  <div className="feature-item">
-                    <FiMail className="feature-icon" />
-                    <span>Send to validated addresses</span>
-                  </div>
-                  <div className="feature-item">
-                    <FiActivity className="feature-icon" />
-                    <span>Batch email campaigns</span>
-                  </div>
-                  <div className="feature-item">
-                    <FiZap className="feature-icon" />
-                    <span>Email templates</span>
-                  </div>
-                  <div className="feature-item">
-                    <FiAward className="feature-icon" />
-                    <span>Delivery tracking</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* API Configuration for other tiers */}
-        {user?.subscriptionTier !== 'pro' && (
-          <div className="profile-section">
-            <h3><FiKey /> API Configuration</h3>
-            <div className="tier-restriction">
-              <div className="restriction-icon">🔒</div>
-              <h4>Email Sending - Pro Feature</h4>
-              <p>Email sending with SendGrid integration is available for Pro tier users.</p>
-              {user?.subscriptionTier === 'starter' && (
-                <p><strong>You're on Starter tier</strong> - Upgrade to Pro to unlock email sending capabilities!</p>
-              )}
-              {user?.subscriptionTier === 'free' && (
-                <p><strong>You're on Free tier</strong> - Upgrade to Pro to unlock email sending capabilities!</p>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Save Button */}
         {isEditing && (
