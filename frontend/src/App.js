@@ -8,11 +8,10 @@ import {
   FiMail, FiRefreshCw, 
   FiTrash2, FiDownload, FiCopy, FiCheckCircle, FiXCircle,
   FiZap, FiCpu, FiInbox, FiList, FiClock, FiAlertTriangle,
-  FiAlertCircle, FiFileText, FiSend,
+  FiAlertCircle, FiFileText,
   FiShield, FiActivity, FiAward, FiMoon, FiSun, FiUser, FiLogOut,
   FiInfo, FiHelpCircle, FiX, FiLink, FiUsers
 } from 'react-icons/fi';
-import EmailComposer from './EmailComposer';
 import BatchResultsPaginated from './BatchResultsPaginated';
 import HistoryPaginated from './HistoryPaginated';
 import { getCorrectApiLimit, formatApiLimit, formatApiUsageWithPeriod } from './utils/apiUtils';
@@ -155,7 +154,6 @@ function App() {
   const [error, setError] = useState(null);
   const [batchMode, setBatchMode] = useState(false);
   const [historyMode, setHistoryMode] = useState(false);
-  const [emailMode, setEmailMode] = useState(false);
 
   const [batchEmails, setBatchEmails] = useState('');
   const [batchResults, setBatchResults] = useState(null);
@@ -630,7 +628,6 @@ function App() {
             // Set batch mode and load shared results
             setBatchMode(true);
             setHistoryMode(false);
-            setEmailMode(false);
             setBatchResults({
               results: sharedData.results,
               valid_count: sharedData.metadata.valid_count,
@@ -1901,11 +1898,10 @@ function App() {
           {/* Tabs */}
           <div className="pro-tabs">
             <button
-              className={`pro-tab ${!batchMode && !historyMode && !emailMode ? 'active' : ''}`}
+              className={`pro-tab ${!batchMode && !historyMode ? 'active' : ''}`}
               onClick={() => {
                 setBatchMode(false);
                 setHistoryMode(false);
-                setEmailMode(false);
                 setResult(null);
                 setBatchResults(null);
                 setError(null);
@@ -1941,7 +1937,6 @@ function App() {
                         if (updatedUser.subscriptionTier !== 'free') {
                           setBatchMode(true);
                           setHistoryMode(false);
-                          setEmailMode(false);
                           setResult(null);
                           setBatchResults(null);
                           setError(null);
@@ -1962,7 +1957,6 @@ function App() {
                 }
                 setBatchMode(true);
                 setHistoryMode(false);
-                setEmailMode(false);
                 setResult(null);
                 setBatchResults(null);
                 setError(null);
@@ -1984,45 +1978,10 @@ function App() {
               </div>
             </button>
             <button
-              className={`pro-tab ${emailMode ? 'active' : ''} ${!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier))) ? 'disabled pro-feature' : ''}`}
-              onClick={() => {
-                if (!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier)))) {
-                  if (!user) {
-                    setError('Email sending requires an account. Sign up for free to get started!');
-                  } else {
-                    setError('Email sending is only available for Pro plans. Upgrade to send emails to validated addresses!');
-                  }
-                  return;
-                }
-                setEmailMode(true);
-                setBatchMode(false);
-                setHistoryMode(false);
-                setResult(null);
-                setBatchResults(null);
-                setError(null);
-              }}
-              disabled={!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier)))}
-              title={!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier))) ? (!user ? 'Sign up to access email sending' : 'Upgrade to Pro for email sending') : 'Send emails to validated addresses'}
-            >
-              <div className="pro-tab-content">
-                <span className="pro-tab-icon"><FiSend /></span>
-                <span className="pro-tab-text">
-                  Send Emails
-                  {!adminMode && (!user || (user && ['free', 'starter'].includes(user.subscriptionTier))) && (
-                    <span className="pro-badge">PRO</span>
-                  )}
-                  {adminMode && (
-                    <span className="admin-badge">ADMIN</span>
-                  )}
-                </span>
-              </div>
-            </button>
-            <button
               className={`pro-tab ${historyMode ? 'active' : ''}`}
               onClick={() => {
                 setHistoryMode(true);
                 setBatchMode(false);
-                setEmailMode(false);
                 setResult(null);
                 setBatchResults(null);
                 setError(null);
@@ -2099,9 +2058,7 @@ function App() {
 
 
 
-        {emailMode ? (
-          <EmailComposer />
-        ) : historyMode ? (
+        {historyMode ? (
           <div className="history-section">
             {/* User-specific history header */}
             <div className="history-header">
