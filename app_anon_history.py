@@ -1443,7 +1443,7 @@ def validate_email():
                         usage_data = team_usage['usage']
                         return jsonify({
                             'error': 'Team quota exceeded',
-                            'message': f'Your team has reached the monthly limit of {usage_data["quota_limit"]:,} validations. Quota resets in {usage_data["days_until_reset"]} days.',
+                            'message': f'Your team has reached the lifetime limit of {usage_data["quota_limit"]:,} validations. This is a lifetime quota that does not reset.',
                             'current_usage': usage_data['quota_used'],
                             'limit': usage_data['quota_limit'],
                             'usage_percentage': usage_data['usage_percentage'],

@@ -378,19 +378,57 @@ class TeamManager:
     # ==================== QUOTA MANAGEMENT ====================
     
     def check_team_quota(self, team_id: str, email_count: int = 1) -> bool:
-        """Check if team has enough quota for validation"""
+        """Check if team has enough quota for validation - Python implementation"""
         try:
-            result = self.storage.client.rpc('check_team_quota', {'team_uuid': team_id, 'email_count': email_count}).execute()
-            return result.data if result.data else False
-        except:
+            # Direct database query to avoid function issues
+            result = self.storage.client.table('teams').select('quota_used, quota_limit').eq('id', team_id).eq('is_active', True).execute()
+            
+            if not result.data:
+                return False
+            
+            team = result.data[0]
+            current_usage = team['quota_used'] or 0
+            quota_limit = team['quota_limit'] or 0
+            
+            # Simple lifetime quota check (no reset)
+            can_validate = (current_usage + email_count) <= quota_limit
+            
+            print(f"🔍 Team quota check: {current_usage:,} + {email_count} <= {quota_limit:,} = {can_validate}")
+            
+            return can_validate
+            
+        except Exception as e:
+            print(f"❌ Team quota check error: {e}")
             return False
     
     def use_team_quota(self, team_id: str, email_count: int = 1) -> bool:
-        """Use team quota for validation"""
+        """Use team quota for validation - Direct SQL implementation"""
         try:
-            self.storage.client.rpc('increment_team_quota', {'team_uuid': team_id, 'email_count': email_count}).execute()
-            return True
-        except:
+            # Get current usage first
+            current_result = self.storage.client.table('teams').select('quota_used').eq('id', team_id).execute()
+            
+            if not current_result.data:
+                print(f"❌ Team {team_id} not found")
+                return False
+            
+            current_usage = current_result.data[0]['quota_used'] or 0
+            new_usage = current_usage + email_count
+            
+            # Direct update
+            update_result = self.storage.client.table('teams').update({
+                'quota_used': new_usage,
+                'updated_at': 'now()'
+            }).eq('id', team_id).execute()
+            
+            if update_result.data:
+                print(f"✅ Team quota incremented: {current_usage:,} → {new_usage:,} (+{email_count})")
+                return True
+            else:
+                print(f"❌ Failed to update team quota")
+                return False
+            
+        except Exception as e:
+            print(f"❌ Team quota increment error: {e}")
             return False
     
     def get_team_usage(self, team_id: str) -> Dict:
