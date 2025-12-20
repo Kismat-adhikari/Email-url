@@ -81,12 +81,12 @@ const TeamManagement = () => {
         // Initial load
         checkUserStatus();
         
-        // Real-time polling every 10 seconds for team updates (optimized for production)
+        // Real-time polling every 30 seconds for team updates (reduced to prevent token issues)
         const interval = setInterval(() => {
             if (!loading) {
                 checkUserStatus();
             }
-        }, 10000); // Reduced frequency for production
+        }, 30000); // Reduced frequency to prevent authentication issues
         
         // Immediate refresh when page becomes visible
         const handleVisibilityChange = () => {
@@ -123,17 +123,23 @@ const TeamManagement = () => {
             setLoading(true);
             setError(''); // Clear previous errors
             
+            // Check if we have valid authentication first
+            if (!authToken || !user) {
+                setError('Please log in to access team features');
+                setCanCreateTeam(false);
+                setTeamInfo(null);
+                return;
+            }
+            
             // OPTIMIZED: Make both API calls in parallel for faster loading
             const promises = [];
             
             // Add user data refresh if authenticated
-            if (authToken) {
-                promises.push(
-                    fetch('/api/auth/me', {
-                        headers: getAuthHeaders()
-                    }).then(response => ({ type: 'user', response }))
-                );
-            }
+            promises.push(
+                fetch('/api/auth/me', {
+                    headers: getAuthHeaders()
+                }).then(response => ({ type: 'user', response }))
+            );
             
             // Add team status call
             promises.push(
@@ -147,11 +153,19 @@ const TeamManagement = () => {
             
             // Process results
             for (const result of results) {
-                if (result.type === 'user' && result.response.ok) {
-                    const userData = await result.response.json();
-                    const updatedUser = userData.user;
-                    setUser(updatedUser);
-                    localStorage.setItem('user', JSON.stringify(updatedUser));
+                if (result.type === 'user') {
+                    if (result.response.ok) {
+                        const userData = await result.response.json();
+                        const updatedUser = userData.user;
+                        setUser(updatedUser);
+                        localStorage.setItem('user', JSON.stringify(updatedUser));
+                    } else if (result.response.status === 401) {
+                        // Token is invalid, redirect to login
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('user');
+                        navigate('/login');
+                        return;
+                    }
                 } else if (result.type === 'team') {
                     if (result.response.ok) {
                         const data = await result.response.json();
@@ -163,6 +177,12 @@ const TeamManagement = () => {
                         } else {
                             setTeamInfo(null);
                         }
+                    } else if (result.response.status === 401) {
+                        // Token is invalid, redirect to login
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('user');
+                        navigate('/login');
+                        return;
                     } else {
                         const errorData = await result.response.json();
                         setError(errorData.error || 'Failed to load team information');
@@ -170,8 +190,13 @@ const TeamManagement = () => {
                 }
             }
         } catch (err) {
-            setError('Network error. Please check your connection.');
             console.error('Team status error:', err);
+            // Don't show network errors as prominently to avoid spam
+            if (err.message.includes('Failed to fetch')) {
+                console.log('Network error in team status check - will retry on next interval');
+            } else {
+                setError('Unable to load team information. Please refresh the page.');
+            }
         } finally {
             setLoading(false);
         }

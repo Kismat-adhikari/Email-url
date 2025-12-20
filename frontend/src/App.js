@@ -436,12 +436,12 @@ function App() {
 
     refreshUserData(true); // Force refresh on app load
     
-    // Set up periodic refresh every 10 seconds to catch team changes faster
+    // Set up periodic refresh every 60 seconds (reduced from 10s to prevent token issues)
     const userRefreshInterval = setInterval(() => {
       if (authToken && user) {
         refreshUserData();
       }
-    }, 10000); // Refresh every 10 seconds (faster for team changes)
+    }, 60000); // Refresh every 60 seconds (much less aggressive)
     
     // Refresh when page becomes visible (user comes back from invitation)
     const handleVisibilityChange = () => {
