@@ -81,12 +81,12 @@ const TeamManagement = () => {
         // Initial load
         checkUserStatus();
         
-        // Real-time polling every 30 seconds for team updates (reduced to prevent token issues)
+        // Real-time polling every 60 seconds for team updates (reduced to prevent token issues)
         const interval = setInterval(() => {
             if (!loading) {
                 checkUserStatus();
             }
-        }, 30000); // Reduced frequency to prevent authentication issues
+        }, 60000); // Reduced frequency to prevent authentication issues
         
         // Immediate refresh when page becomes visible
         const handleVisibilityChange = () => {
@@ -123,23 +123,17 @@ const TeamManagement = () => {
             setLoading(true);
             setError(''); // Clear previous errors
             
-            // Check if we have valid authentication first
-            if (!authToken || !user) {
-                setError('Please log in to access team features');
-                setCanCreateTeam(false);
-                setTeamInfo(null);
-                return;
-            }
-            
             // OPTIMIZED: Make both API calls in parallel for faster loading
             const promises = [];
             
             // Add user data refresh if authenticated
-            promises.push(
-                fetch('/api/auth/me', {
-                    headers: getAuthHeaders()
-                }).then(response => ({ type: 'user', response }))
-            );
+            if (authToken) {
+                promises.push(
+                    fetch('/api/auth/me', {
+                        headers: getAuthHeaders()
+                    }).then(response => ({ type: 'user', response }))
+                );
+            }
             
             // Add team status call
             promises.push(
@@ -160,11 +154,18 @@ const TeamManagement = () => {
                         setUser(updatedUser);
                         localStorage.setItem('user', JSON.stringify(updatedUser));
                     } else if (result.response.status === 401) {
-                        // Token is invalid, redirect to login
-                        localStorage.removeItem('authToken');
-                        localStorage.removeItem('user');
-                        navigate('/login');
-                        return;
+                        // Only redirect on actual 401 from server, and only if we don't have valid user data
+                        console.log('Authentication failed for user data refresh');
+                        if (!user) {
+                            // Only redirect if we don't have any user data at all
+                            console.log('No user data available, redirecting to login');
+                            localStorage.removeItem('authToken');
+                            localStorage.removeItem('user');
+                            navigate('/login');
+                            return;
+                        }
+                        // If we have user data, just log the error but don't redirect
+                        console.log('User data refresh failed but keeping existing user data');
                     }
                 } else if (result.type === 'team') {
                     if (result.response.ok) {
@@ -178,25 +179,27 @@ const TeamManagement = () => {
                             setTeamInfo(null);
                         }
                     } else if (result.response.status === 401) {
-                        // Token is invalid, redirect to login
-                        localStorage.removeItem('authToken');
-                        localStorage.removeItem('user');
-                        navigate('/login');
-                        return;
+                        // Only redirect on actual 401 from server, and only if critical
+                        console.log('Team API authentication failed');
+                        if (!user && !teamInfo) {
+                            // Only redirect if we have no user data AND no team info
+                            console.log('No user or team data available, redirecting to login');
+                            localStorage.removeItem('authToken');
+                            localStorage.removeItem('user');
+                            navigate('/login');
+                            return;
+                        }
+                        // If we have some data, just log the error but don't redirect
+                        console.log('Team API failed but keeping existing data');
                     } else {
-                        const errorData = await result.response.json();
-                        setError(errorData.error || 'Failed to load team information');
+                        // Don't show errors for other status codes to avoid spam
+                        console.log('Team status error:', result.response.status);
                     }
                 }
             }
         } catch (err) {
             console.error('Team status error:', err);
-            // Don't show network errors as prominently to avoid spam
-            if (err.message.includes('Failed to fetch')) {
-                console.log('Network error in team status check - will retry on next interval');
-            } else {
-                setError('Unable to load team information. Please refresh the page.');
-            }
+            // Don't show network errors to avoid spam
         } finally {
             setLoading(false);
         }
@@ -339,8 +342,9 @@ const TeamManagement = () => {
         }
     };
 
-    // Check if user is authenticated
-    if (!user || !authToken) {
+    // Check if user is authenticated - but be less aggressive about redirects
+    // Only redirect if we're sure there's no auth token at all
+    if (!authToken) {
         return (
             <div className="App">
                 {/* Top Navigation Bar */}
@@ -382,6 +386,76 @@ const TeamManagement = () => {
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // If we have a token but no user data yet, show loading (don't redirect)
+    if (!user && authToken) {
+        return (
+            <div className="App">
+                {/* Top Navigation Bar */}
+                <nav className="top-navbar">
+                    <div className="navbar-container">
+                        {/* Logo Section */}
+                        <div className="navbar-logo">
+                            <span className="logo-text" onClick={() => navigate('/')} style={{cursor: 'pointer'}}>LAGCI</span>
+                        </div>
+
+                        {/* Right Section */}
+                        <div className="navbar-right">
+                            {/* Dark Mode Toggle */}
+                            <button className="navbar-btn dark-mode-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+                                {darkMode ? <FiSun /> : <FiMoon />}
+                            </button>
+                        </div>
+                    </div>
+                </nav>
+
+                <div className="pro-container">
+                    <div className="pro-main-card">
+                        <div className="loading-skeleton">
+                            <div className="skeleton-card">
+                                <div className="skeleton-line skeleton-title"></div>
+                                <div className="skeleton-line skeleton-text"></div>
+                                <div className="skeleton-line skeleton-text short"></div>
+                            </div>
+                        </div>
+                        <style jsx>{`
+                            .loading-skeleton {
+                                padding: 20px;
+                            }
+                            .skeleton-card {
+                                background: #f8f9fa;
+                                border-radius: 8px;
+                                padding: 24px;
+                                margin-bottom: 16px;
+                            }
+                            .skeleton-line {
+                                height: 16px;
+                                background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+                                background-size: 200% 100%;
+                                animation: loading 1.5s infinite;
+                                border-radius: 4px;
+                                margin-bottom: 12px;
+                            }
+                            .skeleton-title {
+                                height: 24px;
+                                width: 60%;
+                            }
+                            .skeleton-text {
+                                width: 80%;
+                            }
+                            .skeleton-text.short {
+                                width: 40%;
+                            }
+                            @keyframes loading {
+                                0% { background-position: 200% 0; }
+                                100% { background-position: -200% 0; }
+                            }
+                        `}</style>
                     </div>
                 </div>
             </div>
