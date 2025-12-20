@@ -310,102 +310,31 @@ def get_team_status(current_user_id):
     try:
         storage = get_storage()
         
-        # Single query to get user info with team data
-        user_query = """
-        SELECT 
-            u.id,
-            u.subscription_tier,
-            u.team_id,
-            u.team_role,
-            t.name as team_name,
-            t.description as team_description,
-            t.quota_used,
-            t.quota_limit,
-            t.max_members,
-            t.owner_id,
-            ROUND((t.quota_used::numeric / t.quota_limit::numeric) * 100, 1) as usage_percentage,
-            (SELECT COUNT(*) FROM team_members WHERE team_id = t.id AND is_active = true) as member_count
-        FROM users u
-        LEFT JOIN teams t ON u.team_id = t.id
-        WHERE u.id = %s
-        """
+        # Get user info first
+        user_result = storage.client.table('users').select('subscription_tier, team_id, team_role').eq('id', current_user_id).execute()
+        if not user_result.data:
+            return jsonify({'error': 'User not found'}), 404
         
-        result = storage.client.rpc('exec_raw_sql', {
-            'query': user_query,
-            'params': [current_user_id]
-        }).execute()
-        
-        if not result.data or not result.data[0]:
-            # Fallback to simple query if raw SQL doesn't work
-            user_result = storage.client.table('users').select('subscription_tier, team_id, team_role').eq('id', current_user_id).execute()
-            if not user_result.data:
-                return jsonify({'error': 'User not found'}), 404
-            
-            user = user_result.data[0]
-            
-            response = {
-                'can_create_team': user['subscription_tier'] in ['starter', 'pro'] and user['team_id'] is None,
-                'subscription_tier': user['subscription_tier'],
-                'in_team': user['team_id'] is not None,
-                'team_info': None
-            }
-            
-            # If user is in a team, get team info
-            if user['team_id']:
-                team_info = team_manager.get_team_info(user['team_id'], current_user_id)
-                if team_info['success']:
-                    response['team_info'] = team_info
-            
-            return jsonify(response), 200
-        
-        user_data = result.data[0]
-        
-        can_create = (
-            user_data['subscription_tier'] in ['starter', 'pro'] and 
-            user_data['team_id'] is None
-        )
+        user = user_result.data[0]
         
         response = {
-            'can_create_team': can_create,
-            'subscription_tier': user_data['subscription_tier'],
-            'in_team': user_data['team_id'] is not None,
+            'can_create_team': user['subscription_tier'] in ['starter', 'pro'] and user['team_id'] is None,
+            'subscription_tier': user['subscription_tier'],
+            'in_team': user['team_id'] is not None,
             'team_info': None
         }
         
-        # If user is in a team, include team info
-        if user_data['team_id']:
-            # Get team members and invitations in parallel
-            members_result = storage.client.table('team_member_details').select('*').eq('team_id', user_data['team_id']).execute()
-            
-            # Only get pending invitations if user is owner/admin
-            pending_invites = []
-            if user_data['team_role'] in ['owner', 'admin']:
-                invites_result = storage.client.table('team_invitations').select('*').eq('team_id', user_data['team_id']).eq('status', 'pending').execute()
-                pending_invites = invites_result.data if invites_result.data else []
-            
-            response['team_info'] = {
-                'success': True,
-                'team': {
-                    'id': user_data['team_id'],
-                    'name': user_data['team_name'],
-                    'description': user_data['team_description'],
-                    'quota_used': user_data['quota_used'],
-                    'quota_limit': user_data['quota_limit'],
-                    'usage_percentage': user_data['usage_percentage'],
-                    'member_count': user_data['member_count'],
-                    'max_members': user_data['max_members'],
-                    'owner_id': user_data['owner_id']
-                },
-                'members': members_result.data if members_result.data else [],
-                'pending_invitations': pending_invites,
-                'user_role': user_data['team_role']
-            }
+        # If user is in a team, get team info
+        if user['team_id']:
+            team_info = team_manager.get_team_info(user['team_id'], current_user_id)
+            if team_info['success']:
+                response['team_info'] = team_info
         
         return jsonify(response), 200
         
     except Exception as e:
-        # Fallback to original method if optimized query fails
-        return check_team_eligibility_fallback(current_user_id)
+        print(f"Error in get_team_status: {e}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 def check_team_eligibility_fallback(current_user_id):
     """Fallback method for team eligibility check"""
@@ -447,7 +376,7 @@ def check_team_eligibility_fallback(current_user_id):
 @token_required
 def check_team_eligibility(current_user_id):
     """Legacy endpoint - redirects to optimized status endpoint"""
-    return get_team_status(current_user_id)
+    return check_team_eligibility_fallback(current_user_id)
 
 # Error handlers
 @team_bp.errorhandler(404)

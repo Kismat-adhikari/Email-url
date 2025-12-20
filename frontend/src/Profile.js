@@ -43,6 +43,32 @@ const Profile = () => {
     }
   }, [user]);
 
+  // Refresh user data when component loads
+  useEffect(() => {
+    const refreshUserData = async () => {
+      if (authToken) {
+        try {
+          const response = await fetch('/api/auth/me', {
+            headers: {
+              'Authorization': `Bearer ${authToken}`
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const updatedUser = data.user;
+            setUser(updatedUser);
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+          }
+        } catch (error) {
+          console.error('Profile: Failed to refresh user data:', error);
+        }
+      }
+    };
+
+    refreshUserData();
+  }, [authToken]); // Refresh when component mounts
+
   useEffect(() => {
     // Apply dark mode class
     if (darkMode) {
@@ -200,22 +226,44 @@ const Profile = () => {
             </button>
 
             {/* API Usage Counter */}
-            <div className={`api-usage-counter ${
-              user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) ? 'limit-reached' : 
-              user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) * 0.8 ? 'limit-warning' : ''
-            } ${user.subscriptionTier === 'pro' ? 'pro-tier' : ''}`}>
+            <div className={`api-usage-counter ${(() => {
+              // Use team quota if user is in a team, otherwise individual quota
+              const isInTeam = user.teamId && user.teamInfo;
+              const currentUsage = isInTeam ? (user.teamInfo.quota_used || 0) : (user.apiCallsCount || 0);
+              const currentLimit = isInTeam ? (user.teamInfo.quota_limit || 10000000) : getCorrectApiLimit(user.subscriptionTier);
+              
+              return currentUsage >= currentLimit ? 'limit-reached' : 
+                     currentUsage >= currentLimit * 0.8 ? 'limit-warning' : '';
+            })()} ${user.subscriptionTier === 'pro' ? 'pro-tier' : ''}`}>
               <FiActivity className="usage-icon" />
               <span className="usage-text">
-                {formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
+                {(() => {
+                  // Display team quota if user is in a team
+                  const isInTeam = user.teamId && user.teamInfo;
+                  if (isInTeam) {
+                    const teamUsage = user.teamInfo.quota_used || 0;
+                    const teamLimit = user.teamInfo.quota_limit || 10000000;
+                    return `${teamUsage.toLocaleString()}/${teamLimit.toLocaleString()} (Team)`;
+                  } else {
+                    return formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier);
+                  }
+                })()}
               </span>
               <span className="usage-label">
-                {getTierDisplayName(user.subscriptionTier)} Tier
+                {user.teamId && user.teamInfo ? 'Team Quota' : `${getTierDisplayName(user.subscriptionTier)} Tier`}
               </span>
-              {['free', 'starter'].includes(user.subscriptionTier) && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) && (
-                <div className="upgrade-hint">
-                  <FiZap style={{marginRight: '4px'}} /> {user.subscriptionTier === 'free' ? 'Upgrade to Starter!' : 'Upgrade to Pro!'}
-                </div>
-              )}
+              {(() => {
+                // Show upgrade hint only for non-team members who have reached their limit
+                const isInTeam = user.teamId && user.teamInfo;
+                if (!isInTeam && ['free', 'starter'].includes(user.subscriptionTier) && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)) {
+                  return (
+                    <div className="upgrade-hint">
+                      <FiZap style={{marginRight: '4px'}} /> {user.subscriptionTier === 'free' ? 'Upgrade to Starter!' : 'Upgrade to Pro!'}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             {/* Navigation Buttons */}
@@ -341,21 +389,69 @@ const Profile = () => {
               <div className="profile-value">
                 <div className="usage-display">
                   <span className="usage-numbers">
-                    {formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
+                    {(() => {
+                      // Display team quota if user is in a team
+                      const isInTeam = user.teamId && user.teamInfo;
+                      
+                      if (isInTeam) {
+                        const teamUsage = user.teamInfo.quota_used || 0;
+                        const teamLimit = user.teamInfo.quota_limit || 10000000;
+                        return `${teamUsage.toLocaleString()}/${teamLimit.toLocaleString()} (Team Shared)`;
+                      } else {
+                        return formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier);
+                      }
+                    })()}
                   </span>
                   <div className="usage-bar">
                     <div 
                       className="usage-fill"
                       style={{ 
-                        width: `${getUsagePercentage(user.apiCallsCount || 0, user.subscriptionTier)}%` 
+                        width: `${(() => {
+                          const isInTeam = user.teamId && user.teamInfo;
+                          if (isInTeam) {
+                            const teamUsage = user.teamInfo.quota_used || 0;
+                            const teamLimit = user.teamInfo.quota_limit || 10000000;
+                            const percentage = (teamUsage / teamLimit) * 100;
+                            // Ensure minimum visible width for small percentages (0.5% minimum)
+                            return Math.max(percentage, teamUsage > 0 ? 0.5 : 0);
+                          } else {
+                            return getUsagePercentage(user.apiCallsCount || 0, user.subscriptionTier);
+                          }
+                        })()}%` 
                       }}
                     />
                   </div>
                   <span className="usage-percentage">
-                    {Math.round(getUsagePercentage(user.apiCallsCount || 0, user.subscriptionTier))}% used
+                    {(() => {
+                      const isInTeam = user.teamId && user.teamInfo;
+                      if (isInTeam) {
+                        const teamUsage = user.teamInfo.quota_used || 0;
+                        const teamLimit = user.teamInfo.quota_limit || 10000000;
+                        const percentage = (teamUsage / teamLimit) * 100;
+                        // Show 3 decimal places for small percentages, round for larger ones
+                        return percentage < 1 && percentage > 0 ? percentage.toFixed(3) : Math.round(percentage);
+                      } else {
+                        return Math.round(getUsagePercentage(user.apiCallsCount || 0, user.subscriptionTier));
+                      }
+                    })()}% used
                   </span>
                   <div className="tier-info">
-                    <strong>{getTierDisplayName(user.subscriptionTier)} Tier</strong> - {formatApiLimit(user.subscriptionTier)} API calls
+                    {(() => {
+                      const isInTeam = user.teamId && user.teamInfo;
+                      if (isInTeam) {
+                        return (
+                          <>
+                            <strong>Team Member</strong> - Shared 10M lifetime quota
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            <strong>{getTierDisplayName(user.subscriptionTier)} Tier</strong> - {formatApiLimit(user.subscriptionTier)} API calls
+                          </>
+                        );
+                      }
+                    })()}
                   </div>
                 </div>
               </div>

@@ -92,12 +92,43 @@ def get_daily_api_usage(user_id, storage):
         logger.error(f"Failed to get daily API usage: {str(e)}")
         return 0
 
+def get_fresh_user_data(user_id):
+    """
+    Get fresh user data from database to ensure team_id is current
+    This prevents issues where user just joined a team but backend has stale data
+    """
+    try:
+        storage = get_storage()
+        fresh_user = storage.get_user_by_id(user_id)
+        if fresh_user:
+
+            return fresh_user
+        return None
+    except Exception as e:
+
+        return None
+
+def get_effective_subscription_tier(user):
+    """
+    Get the effective subscription tier for a user, considering team membership
+    Team members get Pro access regardless of their base tier
+    """
+    base_tier = user.get('subscription_tier', 'free')
+    team_id = user.get('team_id')
+
+    # If user is in a team, they get Pro access
+    if team_id:
+
+        return 'pro'
+
+    return base_tier
+
 def check_api_limits(user, is_admin=False):
     """Check API limits based on user's subscription tier"""
     if is_admin:
         return True, 0, 'unlimited'  # Admin has unlimited access
     
-    subscription_tier = user.get('subscription_tier', 'free')
+    subscription_tier = get_effective_subscription_tier(user)
     
     if subscription_tier == 'free':
         # Free tier: 10 per day
@@ -173,7 +204,6 @@ def get_admin_from_request():
 # ============================================================================
 # DOMAIN STATISTICS HELPER
 # ============================================================================
-
 
 def calculate_domain_stats(results):
     """
@@ -278,7 +308,6 @@ def calculate_domain_stats(results):
         'total_emails': total_emails
     }
 
-
 # ============================================================================
 # MIDDLEWARE - Extract Anonymous User ID & Rate Limiting
 # ============================================================================
@@ -291,12 +320,10 @@ def validate_uuid_format(user_id: str) -> bool:
     )
     return bool(uuid_pattern.match(user_id))
 
-
 def validate_email_format(email: str) -> bool:
     """Basic email format validation using the proper validator."""
     from emailvalidator_unified import validate_email
     return validate_email(email)
-
 
 def get_anon_user_id():
     """
@@ -319,13 +346,11 @@ def get_anon_user_id():
     
     return anon_user_id
 
-
 def get_client_ip():
     """Get client IP address for rate limiting."""
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr or 'unknown'
-
 
 def rate_limit(f):
     """Rate limiting decorator."""
@@ -355,7 +380,6 @@ def rate_limit(f):
     
     return decorated_function
 
-
 # ============================================================================
 # AUTHENTICATION HELPERS
 # ============================================================================
@@ -365,11 +389,9 @@ def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
-
 def verify_password(password: str, hashed: str) -> bool:
     """Verify password against hash."""
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-
 
 def generate_jwt_token(user_data: dict) -> str:
     """Generate JWT token for user."""
@@ -381,7 +403,6 @@ def generate_jwt_token(user_data: dict) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-
 def verify_jwt_token(token: str) -> dict:
     """Verify and decode JWT token."""
     try:
@@ -392,7 +413,6 @@ def verify_jwt_token(token: str) -> dict:
     except jwt.InvalidTokenError:
         raise ValueError('Invalid token')
 
-
 def get_user_from_token():
     """Extract user from JWT token in Authorization header."""
     auth_header = request.headers.get('Authorization')
@@ -402,7 +422,6 @@ def get_user_from_token():
     token = auth_header.split(' ')[1]
     payload = verify_jwt_token(token)
     return payload
-
 
 def auth_required(f):
     """Decorator to require authentication."""
@@ -419,7 +438,6 @@ def auth_required(f):
             }), 401
     return decorated_function
 
-
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -428,7 +446,6 @@ def auth_required(f):
 def home():
     """Serve React frontend."""
     return send_from_directory(app.static_folder, 'index.html')
-
 
 @app.route('/api')
 def api_home():
@@ -452,7 +469,6 @@ def api_home():
             'X-User-ID': 'Anonymous user ID (UUIDv4 generated on frontend)'
         }
     })
-
 
 # ============================================================================
 # ADMIN VALIDATION ENDPOINTS (UNLIMITED ACCESS)
@@ -888,7 +904,6 @@ def health():
         'version': '3.0.0'
     })
 
-
 # ============================================================================
 # AUTHENTICATION ENDPOINTS
 # ============================================================================
@@ -1021,7 +1036,6 @@ def signup():
             'message': 'An error occurred while creating your account'
         }), 500
 
-
 @app.route('/api/auth/login', methods=['POST'])
 @rate_limit
 def login():
@@ -1135,7 +1149,6 @@ def login():
             'message': 'An error occurred during login'
         }), 500
 
-
 @app.route('/api/auth/me', methods=['GET'])
 @auth_required
 def get_current_user():
@@ -1176,7 +1189,7 @@ def get_current_user():
         if user.get('team_id'):
             # User is in a team, they get Pro-level access
             effective_subscription_tier = 'pro'
-            
+
             # Get team information
             try:
                 team_result = storage.client.table('team_dashboard').select('*').eq('id', user['team_id']).execute()
@@ -1215,7 +1228,6 @@ def get_current_user():
             'message': 'An error occurred while fetching user data'
         }), 500
 
-
 @app.route('/api/auth/logout', methods=['POST'])
 @auth_required
 def logout():
@@ -1248,7 +1260,6 @@ def logout():
             'error': 'Logout failed',
             'message': 'An error occurred during logout'
         }), 500
-
 
 @app.route('/api/auth/profile', methods=['PUT'])
 @auth_required
@@ -1343,7 +1354,6 @@ def update_profile():
             'message': 'An error occurred while updating your profile'
         }), 500
 
-
 @app.route('/api/validate', methods=['POST'])
 @rate_limit
 def validate_email():
@@ -1421,6 +1431,7 @@ def validate_email():
             
             # Check if user is in a team (team quota overrides individual quota)
             team_info = team_manager.get_user_team(user_id)
+
             if team_info and team_info['team']['is_active']:
                 # Use team quota
                 team_id = team_info['team']['id']
@@ -1446,7 +1457,7 @@ def validate_email():
                 can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
                 
                 if not can_validate:
-                    subscription_tier = authenticated_user.get('subscription_tier', 'free')
+                    subscription_tier = get_effective_subscription_tier(authenticated_user)
                     if subscription_tier == 'free':
                         message = f'You have reached your daily limit of {limit} API calls. Come back tomorrow or upgrade to Pro for 10K calls per month!'
                     elif subscription_tier == 'starter':
@@ -1637,9 +1648,11 @@ def validate_email():
             # Increment API usage for authenticated users (skip for admins)
             if authenticated_user and not is_admin:
                 try:
+
                     # Check if user is in a team - increment team quota instead of individual
-                    if team_info and team_info['team']['is_active']:
+                    if team_info and team_info.get('team', {}).get('is_active'):
                         team_id = team_info['team']['id']
+
                         team_manager.use_team_quota(team_id, 1)
                         
                         # Get updated team usage for response
@@ -1653,8 +1666,10 @@ def validate_email():
                                 'team_name': team_info['team']['name'],
                                 'is_team_quota': True
                             }
+
                         logger.info(f"Team quota incremented for team {team_id} (user {user_id})")
                     else:
+
                         # Use individual quota
                         storage.increment_api_usage(user_id, 1)
                         new_count = authenticated_user['api_calls_count'] + 1
@@ -1666,6 +1681,7 @@ def validate_email():
                         }
                         logger.info(f"API usage incremented for user {user_id}: {new_count}/{authenticated_user['api_calls_limit']}")
                 except Exception as e:
+
                     logger.error(f"Failed to increment API usage: {str(e)}")
             elif is_admin:
                 # For admin users, show unlimited usage
@@ -1690,7 +1706,6 @@ def validate_email():
             'error': 'Validation failed',
             'message': str(e)
         }), 500
-
 
 @app.route('/api/validate/local', methods=['POST'])
 @rate_limit
@@ -1899,7 +1914,6 @@ def validate_email_local():
             'error': 'Validation failed',
             'message': str(e)
         }), 500
-
 
 @app.route('/api/validate/batch', methods=['POST'])
 @rate_limit
@@ -2148,7 +2162,6 @@ def validate_batch_endpoint():
             'message': str(e)
         }), 500
 
-
 @app.route('/api/validate/batch/authenticated', methods=['POST'])
 @rate_limit
 def validate_batch_authenticated():
@@ -2240,17 +2253,24 @@ def validate_batch_authenticated():
         # Check API limits and subscription tier for authenticated users (bypass for admins)
         is_admin = is_admin_request()
         if not is_admin:
-            subscription_tier = authenticated_user.get('subscription_tier', 'free')
+            # CRITICAL: Get fresh user data to ensure team_id is current
+            fresh_user = get_fresh_user_data(user_id)
+            if fresh_user:
+                authenticated_user = fresh_user
             
+            subscription_tier = get_effective_subscription_tier(authenticated_user)
+
             # Block batch validation for free tier users only (starter+ can use batch validation)
             if subscription_tier == 'free':
+
                 return jsonify({
                     'error': 'Feature not available',
                     'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter (10K/month) or Pro (10M lifetime) to access batch processing!',
                     'subscription_tier': subscription_tier,
                     'upgrade_required': True
                 }), 403
-            
+            else:
+
             # Check API limits using new tier-aware system
             can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
             
@@ -2394,8 +2414,17 @@ def validate_batch_authenticated():
                     # Increment API usage for authenticated users (skip for admins)
                     if not is_admin:
                         try:
-                            storage.increment_api_usage(user_id, 1)
+                            # Check if user is in a team
+                            team_info = team_manager.get_user_team(user_id)
+                            if team_info and team_info.get('team', {}).get('is_active'):
+                                team_id = team_info['team']['id']
+
+                                team_manager.use_team_quota(team_id, 1)
+                            else:
+
+                                storage.increment_api_usage(user_id, 1)
                         except Exception as e:
+
                             logger.error(f"Failed to increment API usage: {str(e)}")
                             
                 except Exception as e:
@@ -2437,7 +2466,6 @@ def validate_batch_authenticated():
             'error': 'Batch validation failed',
             'message': str(e)
         }), 500
-
 
 @app.route('/api/validate/batch/stream', methods=['POST'])
 @rate_limit
@@ -2482,10 +2510,17 @@ def validate_batch_stream():
                 payload = verify_jwt_token(token)
                 user_id = payload.get('user_id')
                 
-                # Get user details for API limiting
+                # Get user details for API limiting - ALWAYS get fresh data
                 storage = get_storage()
                 authenticated_user = storage.get_user_by_id(user_id)
                 if authenticated_user:
+                    # CRITICAL: Always get fresh user data to ensure team_id is current
+                    # This prevents issues where user just joined a team but backend has stale data
+
+                    fresh_user = storage.get_user_by_id(user_id)
+                    if fresh_user:
+                        authenticated_user = fresh_user
+
                     logger.info(f"Authenticated batch validation for user {user_id} ({authenticated_user['email']})")
                     
                     # Check if user is suspended (IMMEDIATE CHECK)
@@ -2518,17 +2553,24 @@ def validate_batch_stream():
         # Check API limits and subscription tier for authenticated users BEFORE processing (bypass for admins)
         is_admin = is_admin_request()
         if authenticated_user and not is_admin:
-            subscription_tier = authenticated_user.get('subscription_tier', 'free')
+            # CRITICAL: Get fresh user data to ensure team_id is current
+            fresh_user = get_fresh_user_data(user_id)
+            if fresh_user:
+                authenticated_user = fresh_user
             
+            subscription_tier = get_effective_subscription_tier(authenticated_user)
+
             # Block batch validation for free tier users only (starter+ can use batch validation)
             if subscription_tier == 'free':
+
                 return jsonify({
                     'error': 'Feature not available',
                     'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter (10K/month) or Pro (10M lifetime) to access batch processing!',
                     'subscription_tier': subscription_tier,
                     'upgrade_required': True
                 }), 403
-            
+            else:
+
             # Check API limits using new tier-aware system
             can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
             
@@ -2795,11 +2837,20 @@ def validate_batch_stream():
                                 for record in batch_records:
                                     storage.create_record(record)
                             
-                            # Batch update API usage
+                            # Batch update API usage - check for team quota first
                             if authenticated_user and user_id and not is_admin_request():
                                 try:
-                                    storage.increment_api_usage(user_id, len(batch_records))
+                                    # Check if user is in a team
+                                    team_info = team_manager.get_user_team(user_id)
+                                    if team_info and team_info.get('team', {}).get('is_active'):
+                                        team_id = team_info['team']['id']
+
+                                        team_manager.use_team_quota(team_id, len(batch_records))
+                                    else:
+
+                                        storage.increment_api_usage(user_id, len(batch_records))
                                 except Exception as e:
+
                                     logger.error(f"Failed to increment API usage: {str(e)}")
                             
                             # Clear batch
@@ -2812,10 +2863,38 @@ def validate_batch_stream():
             # Collect all results for domain stats
             all_results = [r for r in processed_results if r is not None]
 
-            
             # Calculate domain statistics
             domain_stats = calculate_domain_stats(all_results)
             
+            # Get updated API usage for completion event
+            api_usage_info = None
+            if authenticated_user and user_id and not is_admin_request():
+                try:
+                    team_info = team_manager.get_user_team(user_id)
+                    if team_info and team_info.get('team', {}).get('is_active'):
+                        # Return team quota info
+                        team_usage = team_manager.get_team_usage(team_info['team']['id'])
+                        if team_usage['success']:
+                            usage_data = team_usage['usage']
+                            api_usage_info = {
+                                'calls_used': usage_data['quota_used'],
+                                'calls_limit': usage_data['quota_limit'],
+                                'calls_remaining': usage_data['quota_limit'] - usage_data['quota_used'],
+                                'team_name': team_info['team']['name'],
+                                'is_team_quota': True
+                            }
+                    else:
+                        # Return individual quota info
+                        fresh_user = get_fresh_user_data(user_id)
+                        if fresh_user:
+                            api_usage_info = {
+                                'calls_used': fresh_user['api_calls_count'],
+                                'calls_limit': fresh_user['api_calls_limit'],
+                                'calls_remaining': fresh_user['api_calls_limit'] - fresh_user['api_calls_count'],
+                                'is_team_quota': False
+                            }
+                except Exception as e:
+
             # Send completion event
             completion_data = {
                 'type': 'complete',
@@ -2824,7 +2903,8 @@ def validate_batch_stream():
                 'duplicates_removed': duplicates_removed,
                 'valid_count': valid_count,
                 'invalid_count': invalid_count,
-                'domain_stats': domain_stats
+                'domain_stats': domain_stats,
+                'api_usage': api_usage_info
             }
             yield f"data: {json.dumps(completion_data)}\n\n"
         
@@ -2844,7 +2924,6 @@ def validate_batch_stream():
             'error': 'Stream validation failed',
             'message': str(e)
         }), 500
-
 
 @app.route('/api/validate/batch/local', methods=['POST'])
 @rate_limit
@@ -3083,7 +3162,6 @@ def validate_batch_stream_local():
             'message': str(e)
         }), 500
 
-
 @app.route('/api/history', methods=['GET'])
 def get_history():
     """
@@ -3153,7 +3231,6 @@ def get_history():
             'message': str(e)
         }), 500
 
-
 @app.route('/api/history/<int:record_id>', methods=['DELETE'])
 def delete_history_record(record_id):
     """
@@ -3209,7 +3286,6 @@ def delete_history_record(record_id):
             'message': str(e)
         }), 500
 
-
 @app.route('/api/history', methods=['DELETE'])
 def clear_history():
     """
@@ -3250,7 +3326,6 @@ def clear_history():
             'error': 'Failed to clear history',
             'message': str(e)
         }), 500
-
 
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
@@ -3294,7 +3369,6 @@ def get_analytics():
             'message': str(e)
         }), 500
 
-
 # ============================================================================
 # ERROR HANDLERS
 # ============================================================================
@@ -3309,7 +3383,6 @@ def not_found(error):
         }), 404
     return send_from_directory(app.static_folder, 'index.html')
 
-
 @app.errorhandler(405)
 def method_not_allowed(error):
     """Handle 405 errors."""
@@ -3318,7 +3391,6 @@ def method_not_allowed(error):
         'message': 'The HTTP method is not allowed for this endpoint'
     }), 405
 
-
 @app.errorhandler(500)
 def internal_error(error):
     """Handle 500 errors."""
@@ -3326,7 +3398,6 @@ def internal_error(error):
         'error': 'Internal server error',
         'message': 'An unexpected error occurred'
     }), 500
-
 
 # ============================================================================
 # MAIN
@@ -3401,7 +3472,6 @@ def get_bounce_statistics():
             'bounce_rate': 0.0
         }), 500
 
-
 @app.route('/api/bounce/record', methods=['POST'])
 def record_bounce_api():
     """
@@ -3458,7 +3528,6 @@ def record_bounce_api():
             'message': str(e)
         }), 500
 
-
 @app.route('/api/bounce/history/<email>', methods=['GET'])
 def get_email_bounce_history(email):
     """
@@ -3512,7 +3581,6 @@ def get_email_bounce_history(email):
             'error': 'Failed to get bounce history',
             'message': str(e)
         }), 500
-
 
 # ============================================================================
 # SIMPLE BOUNCE TRACKING
@@ -3570,7 +3638,6 @@ def record_simple_bounce():
     except Exception as e:
         logger.error(f"Failed to record bounce: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 # ============================================================================
 # EMAIL SENDING API ENDPOINTS
@@ -3656,7 +3723,6 @@ def send_single_email():
             'error': str(e)
         }), 500
 
-
 @app.route('/api/email/send/batch', methods=['POST'])
 @auth_required
 def send_batch_emails():
@@ -3722,7 +3788,6 @@ def send_batch_emails():
             'error': str(e)
         }), 500
 
-
 @app.route('/api/email/templates', methods=['GET'])
 def get_email_templates():
     """
@@ -3748,7 +3813,6 @@ def get_email_templates():
     except Exception as e:
         logger.error(f"Failed to get templates: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 @app.route('/api/email/config/test', methods=['POST'])
 def test_email_config():
@@ -3777,7 +3841,6 @@ def test_email_config():
             'error': str(e),
             'status': 'Configuration test failed'
         }), 500
-
 
 @app.route('/api/email/stats', methods=['GET'])
 def get_email_stats():
@@ -3813,7 +3876,6 @@ def get_email_stats():
     except Exception as e:
         logger.error(f"Failed to get email stats: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 @app.route('/webhook/sendgrid/bounce', methods=['POST'])
 def handle_sendgrid_bounce():
@@ -3882,7 +3944,6 @@ def handle_sendgrid_bounce():
         logger.error(f"SendGrid webhook error: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-
 @app.route('/webhook/test/bounce', methods=['POST'])
 def test_bounce_recording():
     """
@@ -3918,7 +3979,6 @@ def test_bounce_recording():
     except Exception as e:
         logger.error(f"Test bounce error: {e}")
         return jsonify({'error': str(e)}), 500
-
 
 # ============================================================================
 

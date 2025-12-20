@@ -42,8 +42,24 @@ function getAnonUserId() {
   return anonUserId;
 }
 
-// Local storage history management for anonymous users
-function saveValidationToLocalStorage(validationResult) {
+// Local storage history management for anonymous users ONLY
+function saveValidationToLocalStorage(validationResult, user) {
+  // Skip localStorage for authenticated users - they use database storage
+  if (user) {
+    console.log('🔐 Authenticated user - using database storage, skipping localStorage');
+    return null;
+  }
+  
+  // Skip test emails completely
+  if (validationResult.email && (
+    validationResult.email.includes('example.test') || 
+    validationResult.email.includes('@temp.com') ||
+    validationResult.email.startsWith('user0')
+  )) {
+    console.log('🧪 Skipping test email localStorage save:', validationResult.email);
+    return null;
+  }
+  
   try {
     const historyData = localStorage.getItem('validation_history');
     const history = historyData && historyData !== 'undefined' ? JSON.parse(historyData) : [];
@@ -68,18 +84,43 @@ function saveValidationToLocalStorage(validationResult) {
     // Add to beginning of array (newest first)
     history.unshift(record);
     
-    // Keep only last 1000 records to prevent localStorage bloat
-    if (history.length > 1000) {
-      history.splice(1000);
+    // Keep only last 50 records for anonymous users (reduced from 1000)
+    if (history.length > 50) {
+      history.splice(50);
     }
     
     localStorage.setItem('validation_history', JSON.stringify(history));
-    console.log('💾 Saved validation to localStorage:', validationResult.email);
+    // Reduced logging for performance
+    if (history.length % 10 === 0) {
+      console.log(`💾 Saved ${history.length} validations to localStorage (anonymous only)`);
+    }
     
     return record;
   } catch (error) {
     console.error('Failed to save to localStorage:', error);
     return null;
+  }
+}
+
+function cleanupTestDataFromLocalStorage() {
+  try {
+    const historyData = localStorage.getItem('validation_history');
+    if (!historyData || historyData === 'undefined') return;
+    
+    const history = JSON.parse(historyData);
+    const cleanHistory = history.filter(record => 
+      record.email && 
+      !record.email.includes('example.test') && 
+      !record.email.includes('@temp.com') &&
+      !record.email.startsWith('user0')
+    );
+    
+    if (cleanHistory.length !== history.length) {
+      localStorage.setItem('validation_history', JSON.stringify(cleanHistory));
+      console.log(`🧹 Cleaned ${history.length - cleanHistory.length} test emails from localStorage`);
+    }
+  } catch (error) {
+    console.error('Failed to cleanup test data:', error);
   }
 }
 
@@ -360,15 +401,30 @@ function App() {
 
   // Refresh user data on app load if user is logged in
   useEffect(() => {
-    const refreshUserData = async () => {
+    // Clean up test data from localStorage on app load
+    cleanupTestDataFromLocalStorage();
+    
+    const refreshUserData = async (forceRefresh = false) => {
       if (authToken && user) {
         try {
           const response = await api.get('/api/auth/me');
           if (response.status === 200) {
             const updatedUser = response.data.user;
+            
+            // Check if tier has changed (team membership effect)
+            const tierChanged = user.subscriptionTier !== updatedUser.subscriptionTier;
+            if (tierChanged) {
+              console.log(`🔄 Tier changed: ${user.subscriptionTier} → ${updatedUser.subscriptionTier}`);
+            }
+            
             setUser(updatedUser);
             localStorage.setItem('user', JSON.stringify(updatedUser));
-            console.log('🔄 User data refreshed from server');
+            console.log('🔄 User data refreshed from server', forceRefresh ? '(forced)' : '');
+            
+            // If tier changed to pro due to team membership, show notification
+            if (tierChanged && updatedUser.subscriptionTier === 'pro' && updatedUser.teamId) {
+              console.log('✅ Pro access activated via team membership!');
+            }
           }
         } catch (error) {
           console.error('Failed to refresh user data:', error);
@@ -380,28 +436,39 @@ function App() {
       }
     };
 
-    refreshUserData();
+    refreshUserData(true); // Force refresh on app load
     
-    // Set up periodic refresh every 15 seconds to catch team changes
+    // Set up periodic refresh every 10 seconds to catch team changes faster
     const userRefreshInterval = setInterval(() => {
       if (authToken && user) {
         refreshUserData();
       }
-    }, 15000); // Refresh every 15 seconds
+    }, 10000); // Refresh every 10 seconds (faster for team changes)
     
     // Refresh when page becomes visible (user comes back from invitation)
     const handleVisibilityChange = () => {
       if (!document.hidden && authToken && user) {
-        refreshUserData();
+        console.log('🔄 Page visible, force refreshing user data...');
+        refreshUserData(true); // Force refresh when page becomes visible
+      }
+    };
+    
+    // Refresh when window gets focus (user switches back to tab)
+    const handleFocus = () => {
+      if (authToken && user) {
+        console.log('🔄 Window focused, force refreshing user data...');
+        refreshUserData(true); // Force refresh when window gets focus
       }
     };
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
     
     // Cleanup
     return () => {
       clearInterval(userRefreshInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [authToken, user, handleLogout, api]); // Run once on app load
 
@@ -411,21 +478,37 @@ function App() {
     if (urlParams.get('joined') === 'success' && authToken && user) {
       console.log('🎉 Team join detected, refreshing user data immediately...');
       
-      // Immediate refresh for team join
-      const immediateRefresh = async () => {
+      // Immediate refresh for team join with retry logic
+      const immediateRefresh = async (retryCount = 0) => {
         try {
           const response = await api.get('/api/auth/me');
           if (response.status === 200) {
             const updatedUser = response.data.user;
-            setUser(updatedUser);
-            localStorage.setItem('user', JSON.stringify(updatedUser));
-            console.log('✅ User data updated after team join - now Pro tier!');
             
-            // Show success message
-            showInfoModal('Welcome to the Team!', 'You now have Pro access with shared team quota. Your subscription tier has been updated.');
+            // Check if user now has Pro tier
+            if (updatedUser.subscriptionTier === 'pro' && updatedUser.teamId) {
+              setUser(updatedUser);
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              console.log('✅ User data updated after team join - now Pro tier!');
+              
+              // Show success message
+              showInfoModal('Welcome to the Team!', 'You now have Pro access with shared team quota. Your subscription tier has been updated.');
+            } else if (retryCount < 3) {
+              // If still not Pro tier, retry after a short delay
+              console.log(`🔄 User still not Pro tier, retrying in 1 second... (attempt ${retryCount + 1}/3)`);
+              setTimeout(() => immediateRefresh(retryCount + 1), 1000);
+            } else {
+              // After 3 retries, update anyway and show manual refresh option
+              setUser(updatedUser);
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              console.log('⚠️ User data updated but tier may not be current. Manual refresh may be needed.');
+            }
           }
         } catch (error) {
           console.error('Failed to refresh user data after team join:', error);
+          if (retryCount < 3) {
+            setTimeout(() => immediateRefresh(retryCount + 1), 1000);
+          }
         }
       };
       
@@ -865,18 +948,29 @@ function App() {
       
       // Update user API usage if authenticated
       if (user && response.data.api_usage) {
-        const updatedUser = {
-          ...user,
-          apiCallsCount: response.data.api_usage.calls_used
-        };
+        const updatedUser = { ...user };
+        
+        // Check if this is team quota or individual quota
+        if (response.data.api_usage.is_team_quota && user.teamInfo) {
+          // Update team quota
+          updatedUser.teamInfo = {
+            ...user.teamInfo,
+            quota_used: response.data.api_usage.calls_used
+          };
+          console.log(`🔄 Team quota updated: ${response.data.api_usage.calls_used}/${response.data.api_usage.calls_limit} (${response.data.api_usage.team_name})`);
+        } else {
+          // Update individual quota
+          updatedUser.apiCallsCount = response.data.api_usage.calls_used;
+          console.log(`🔄 Individual API usage updated: ${response.data.api_usage.calls_used}/${response.data.api_usage.calls_limit}`);
+        }
+        
         setUser(updatedUser);
         localStorage.setItem('user', JSON.stringify(updatedUser));
-        console.log(`🔄 API usage updated: ${response.data.api_usage.calls_used}/${response.data.api_usage.calls_limit}`);
       }
       
       // Save to localStorage for anonymous users and increment count
       if (!user && response.data) {
-        saveValidationToLocalStorage(response.data);
+        saveValidationToLocalStorage(response.data, user);
         const newCount = anonValidationCount + 1;
         setAnonValidationCount(newCount);
         localStorage.setItem('anon_validation_count', newCount.toString());
@@ -1172,12 +1266,12 @@ function App() {
               invalid_count: prev.invalid_count + invalidCount
             }));
             
-            // Save to localStorage in batch (async to not block UI)
-            setTimeout(() => {
+            // Save to localStorage in batch (only for anonymous users)
+            if (!user) {
               newResults.forEach(result => {
-                if (result) saveValidationToLocalStorage(result);
+                if (result) saveValidationToLocalStorage(result, user);
               });
-            }, 0);
+            }
             
             pendingResults = [];
           };
@@ -1245,6 +1339,27 @@ function App() {
                   flushPendingResults();
                   
                   const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
+                  
+                  // Update API usage if provided
+                  if (user && data.api_usage) {
+                    const updatedUser = { ...user };
+                    
+                    if (data.api_usage.is_team_quota && user.teamInfo) {
+                      // Update team quota
+                      updatedUser.teamInfo = {
+                        ...user.teamInfo,
+                        quota_used: data.api_usage.calls_used
+                      };
+                      console.log(`🔄 Team quota updated from batch: ${data.api_usage.calls_used}/${data.api_usage.calls_limit} (${data.api_usage.team_name})`);
+                    } else {
+                      // Update individual quota
+                      updatedUser.apiCallsCount = data.api_usage.calls_used;
+                      console.log(`🔄 Individual API usage updated from batch: ${data.api_usage.calls_used}/${data.api_usage.calls_limit}`);
+                    }
+                    
+                    setUser(updatedUser);
+                    localStorage.setItem('user', JSON.stringify(updatedUser));
+                  }
                   
                   // Final progress update - ensure completion is shown
                   setProgress({
@@ -1630,16 +1745,31 @@ function App() {
               <div className={`api-usage-counter ${
                 user.subscriptionTier === 'pro' ? 'pro-tier' : ''
               } ${(() => {
-                const correctLimit = getCorrectApiLimit(user.subscriptionTier);
-                return user.apiCallsCount >= correctLimit ? 'limit-reached' : 
-                       user.apiCallsCount >= correctLimit * 0.8 ? 'limit-warning' : '';
+                // Use team quota if user is in a team, otherwise individual quota
+                const isInTeam = user.teamId && user.teamInfo;
+                const currentUsage = isInTeam ? (user.teamInfo.quota_used || 0) : (user.apiCallsCount || 0);
+                const currentLimit = isInTeam ? (user.teamInfo.quota_limit || 10000000) : getCorrectApiLimit(user.subscriptionTier);
+                
+                return currentUsage >= currentLimit ? 'limit-reached' : 
+                       currentUsage >= currentLimit * 0.8 ? 'limit-warning' : '';
               })()}`}>
                 <FiActivity className="usage-icon" />
                 <span className="usage-text">
-                  {formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier)}
+                  {(() => {
+                    // Display team quota if user is in a team
+                    const isInTeam = user.teamId && user.teamInfo;
+                    if (isInTeam) {
+                      const teamUsage = user.teamInfo.quota_used || 0;
+                      const teamLimit = user.teamInfo.quota_limit || 10000000;
+                      return `${teamUsage.toLocaleString()}/${teamLimit.toLocaleString()} (Team)`;
+                    } else {
+                      return formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier);
+                    }
+                  })()}
                 </span>
                 <span className="usage-label">
-                  {user.subscriptionTier === 'free' ? 'Free' : 
+                  {user.teamId && user.teamInfo ? 'Team Quota' : 
+                   user.subscriptionTier === 'free' ? 'Free' : 
                    user.subscriptionTier === 'starter' ? 'Starter' : 
                    user.subscriptionTier === 'pro' ? 'Pro' : 'API Calls'}
                 </span>
@@ -1751,6 +1881,21 @@ function App() {
           </p>
         </header>
 
+        {/* Debug Panel (development only) */}
+        {process.env.NODE_ENV === 'development' && user && (
+          <div style={{
+            background: '#f8f9fa', 
+            border: '1px solid #dee2e6', 
+            borderRadius: '6px', 
+            padding: '12px', 
+            margin: '10px 0',
+            fontSize: '12px',
+            fontFamily: 'monospace'
+          }}>
+            <strong>🔍 Debug Info:</strong> Tier: {user.subscriptionTier} | Team: {user.teamId ? 'Yes' : 'No'} | Team ID: {user.teamId || 'None'}
+          </div>
+        )}
+
         {/* Main Card */}
         <div className="pro-main-card">
           {/* Tabs */}
@@ -1771,8 +1916,43 @@ function App() {
             </button>
             <button
               className={`pro-tab ${batchMode ? 'active' : ''} ${!adminMode && (!user || (user && user.subscriptionTier === 'free')) ? 'disabled pro-feature' : ''}`}
-              onClick={() => {
+              onClick={async () => {
+                // Debug logging
+                console.log('🔍 Batch validation clicked - User tier check:', {
+                  user: user,
+                  subscriptionTier: user?.subscriptionTier,
+                  teamId: user?.teamId,
+                  adminMode: adminMode
+                });
+                
                 if (!adminMode && (!user || (user && user.subscriptionTier === 'free'))) {
+                  // If user is in a team but still showing free tier, force refresh user data
+                  if (user && user.teamId && user.subscriptionTier === 'free') {
+                    console.log('🔄 User in team but showing free tier, force refreshing...');
+                    try {
+                      const response = await api.get('/api/auth/me');
+                      if (response.status === 200) {
+                        const updatedUser = response.data.user;
+                        setUser(updatedUser);
+                        localStorage.setItem('user', JSON.stringify(updatedUser));
+                        console.log('✅ User data refreshed, new tier:', updatedUser.subscriptionTier);
+                        
+                        // If now pro tier, allow batch validation
+                        if (updatedUser.subscriptionTier !== 'free') {
+                          setBatchMode(true);
+                          setHistoryMode(false);
+                          setEmailMode(false);
+                          setResult(null);
+                          setBatchResults(null);
+                          setError(null);
+                          return;
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Failed to refresh user data:', error);
+                    }
+                  }
+                  
                   if (!user) {
                     setError('Batch validation requires an account. Sign up for free to get started!');
                   } else {
@@ -2081,7 +2261,7 @@ function App() {
         ) : (
           <div className="batch-section">
             {/* Free Tier Batch Restriction (hidden for admin and starter+) */}
-            {!adminMode && user && user.subscriptionTier === 'free' && (
+            {!adminMode && user && user.subscriptionTier === 'free' && !user.teamId && (
               <div className="feature-restriction-banner">
                 <div className="restriction-banner-content">
                   <div className="restriction-banner-icon"><FiZap /></div>
@@ -2097,6 +2277,44 @@ function App() {
                   </div>
                   <button className="upgrade-btn-large" onClick={() => navigate('/profile')}>
                     <FiZap style={{marginRight: '8px'}} /> Upgrade to Starter
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Team Member with Stale Data - Force Refresh */}
+            {!adminMode && user && user.subscriptionTier === 'free' && user.teamId && (
+              <div className="feature-restriction-banner" style={{background: '#fff3cd', border: '1px solid #ffc107'}}>
+                <div className="restriction-banner-content">
+                  <div className="restriction-banner-icon">🔄</div>
+                  <div className="restriction-banner-text">
+                    <h3>Updating Your Access...</h3>
+                    <p>You're a team member but your access is still updating. Click refresh to get your Pro access!</p>
+                  </div>
+                  <button 
+                    className="upgrade-btn-large" 
+                    style={{background: '#28a745'}}
+                    onClick={async () => {
+                      console.log('🔄 Manual refresh triggered by user...');
+                      try {
+                        const response = await api.get('/api/auth/me');
+                        if (response.status === 200) {
+                          const updatedUser = response.data.user;
+                          setUser(updatedUser);
+                          localStorage.setItem('user', JSON.stringify(updatedUser));
+                          console.log('✅ User data refreshed manually, new tier:', updatedUser.subscriptionTier);
+                          
+                          if (updatedUser.subscriptionTier !== 'free') {
+                            setError(null); // Clear any errors
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Failed to refresh user data:', error);
+                        setError('Failed to refresh user data. Please try again.');
+                      }
+                    }}
+                  >
+                    🔄 Refresh Access
                   </button>
                 </div>
               </div>

@@ -16,15 +16,67 @@ from supabase_storage import get_storage
 class TeamManager:
     def __init__(self):
         self.storage = get_storage()
+        # Simple in-memory cache for team info (expires after 30 seconds)
+        self._team_cache = {}
+        self._cache_timeout = 30  # seconds
     
+    # ==================== CACHE HELPERS ====================
+    
+    def _get_cache_key(self, team_id: str, user_id: str) -> str:
+        """Generate cache key for team info"""
+        return f"team_{team_id}_{user_id}"
+    
+    def _is_cache_valid(self, cache_entry: dict) -> bool:
+        """Check if cache entry is still valid"""
+        import time
+        return time.time() - cache_entry['timestamp'] < self._cache_timeout
+    
+    def _get_cached_team_info(self, team_id: str, user_id: str) -> dict:
+        """Get team info from cache if valid"""
+        cache_key = self._get_cache_key(team_id, user_id)
+        if cache_key in self._team_cache:
+            cache_entry = self._team_cache[cache_key]
+            if self._is_cache_valid(cache_entry):
+                return cache_entry['data']
+        return None
+    
+    def _cache_team_info(self, team_id: str, user_id: str, data: dict):
+        """Cache team info with timestamp"""
+        import time
+        cache_key = self._get_cache_key(team_id, user_id)
+        self._team_cache[cache_key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
+        
+        # Clean old cache entries (simple cleanup)
+        current_time = time.time()
+        keys_to_remove = []
+        for key, entry in self._team_cache.items():
+            if current_time - entry['timestamp'] > self._cache_timeout * 2:  # Remove entries older than 2x timeout
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del self._team_cache[key]
+    
+    def _invalidate_team_cache(self, team_id: str):
+        """Invalidate all cache entries for a specific team"""
+        keys_to_remove = []
+        for key in self._team_cache.keys():
+            if key.startswith(f"team_{team_id}_"):
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del self._team_cache[key]
+
     # ==================== TEAM CREATION ====================
     
     def create_team(self, owner_id: str, team_name: str, description: str = "") -> Dict:
         """Create a new team (Pro users only)"""
         try:
             # Check if user can create team (must be Pro and not in a team)
-            can_create = self.storage.execute_function('can_create_team', [owner_id])
-            if not can_create.data[0]['can_create_team']:
+            can_create = self.storage.client.rpc('can_create_team', {'user_uuid': owner_id}).execute()
+            if not can_create.data:
                 return {"success": False, "error": "Only Starter/Pro users who aren't in a team can create teams"}
             
             # Create the team
@@ -52,6 +104,16 @@ class TeamManager:
             }
             
             self.storage.client.table('team_members').insert(member_data).execute()
+            
+            # CRITICAL: Update users table with team_id and team_role for owner
+            # This ensures effective tier calculation works correctly
+            self.storage.client.table('users').update({
+                'team_id': team_id,
+                'team_role': 'owner'
+            }).eq('id', owner_id).execute()
+            
+            # Invalidate cache since team structure changed
+            self._invalidate_team_cache(team_id)
             
             return {
                 "success": True,
@@ -108,14 +170,12 @@ class TeamManager:
             base_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
             invite_link = f"{base_url}/invite/{invite_token}"
             
-            # Send invitation email (optional)
-            self.send_invitation_email(email, invite_link, team_id, inviter_id, message)
-            
+            # Generate invitation link only (no email sending)
             return {
                 "success": True,
                 "invitation": invitation,
                 "invite_link": invite_link,
-                "message": f"Invitation sent to {email}"
+                "message": f"Invitation link created for {email}"
             }
             
         except Exception as e:
@@ -153,11 +213,21 @@ class TeamManager:
             
             self.storage.client.table('team_members').insert(member_data).execute()
             
+            # CRITICAL: Update users table with team_id and team_role
+            # This ensures effective tier calculation works correctly
+            self.storage.client.table('users').update({
+                'team_id': invitation['team_id'],
+                'team_role': 'member'
+            }).eq('id', user_id).execute()
+            
             # Mark invitation as accepted
             self.storage.client.table('team_invitations').update({
                 'status': 'accepted',
                 'used_at': datetime.now(timezone.utc).isoformat()
             }).eq('id', invitation['id']).execute()
+            
+            # Invalidate cache since team membership changed
+            self._invalidate_team_cache(invitation['team_id'])
             
             return {
                 "success": True,
@@ -171,39 +241,69 @@ class TeamManager:
     # ==================== TEAM MANAGEMENT ====================
     
     def get_team_info(self, team_id: str, user_id: str) -> Dict:
-        """Get team information for a member - optimized version"""
+        """Get team information for a member - optimized with caching and parallel queries"""
         try:
-            # Single query to get user role and team info
+            # Check cache first for faster response
+            cached_data = self._get_cached_team_info(team_id, user_id)
+            if cached_data:
+
+                return cached_data
+            
+            # First, quickly check if user is a team member
             user_role_result = self.storage.client.table('team_members').select('role').eq('team_id', team_id).eq('user_id', user_id).execute()
             if not user_role_result.data:
                 return {"success": False, "error": "You are not a member of this team"}
             
             user_role = user_role_result.data[0]['role']
             
-            # Parallel queries for better performance
-            import asyncio
+            # OPTIMIZED: Use concurrent.futures for truly parallel database queries
+            import concurrent.futures
+            import threading
             
-            # Get team dashboard info
-            team_info = self.storage.client.table('team_dashboard').select('*').eq('id', team_id).execute()
+            def get_team_dashboard():
+                return self.storage.client.table('team_dashboard').select('*').eq('id', team_id).execute()
+            
+            def get_team_members():
+                return self.storage.client.table('team_member_details').select('*').eq('team_id', team_id).execute()
+            
+            def get_pending_invitations():
+                if user_role in ['owner', 'admin']:
+                    return self.storage.client.table('team_invitations').select('id, email, created_at, expires_at, message').eq('team_id', team_id).eq('status', 'pending').execute()
+                return None
+            
+            # Execute all queries in parallel using ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                # Submit all queries simultaneously
+                team_future = executor.submit(get_team_dashboard)
+                members_future = executor.submit(get_team_members)
+                invites_future = executor.submit(get_pending_invitations)
+                
+                # Wait for all results
+                team_info = team_future.result()
+                members = members_future.result()
+                invites = invites_future.result()
+            
+            # Validate team exists
             if not team_info.data:
                 return {"success": False, "error": "Team not found"}
             
-            # Get team members
-            members = self.storage.client.table('team_member_details').select('*').eq('team_id', team_id).execute()
-            
-            # Get pending invitations (only for owners/admins)
+            # Process invitations
             pending_invites = []
-            if user_role in ['owner', 'admin']:
-                invites = self.storage.client.table('team_invitations').select('id, email, created_at, expires_at, message').eq('team_id', team_id).eq('status', 'pending').execute()
-                pending_invites = invites.data if invites.data else []
+            if invites and invites.data:
+                pending_invites = invites.data
             
-            return {
+            result = {
                 "success": True,
                 "team": team_info.data[0],
                 "members": members.data if members.data else [],
                 "pending_invitations": pending_invites,
                 "user_role": user_role
             }
+            
+            # Cache the result for faster future access
+            self._cache_team_info(team_id, user_id, result)
+
+            return result
             
         except Exception as e:
             return {"success": False, "error": f"Error getting team info: {str(e)}"}
@@ -221,8 +321,18 @@ class TeamManager:
             if member_check.data and member_check.data[0]['role'] == 'owner':
                 return {"success": False, "error": "Cannot remove team owner"}
             
-            # Remove member
+            # Remove member from team_members table
             result = self.storage.client.table('team_members').delete().eq('team_id', team_id).eq('user_id', member_id).execute()
+            
+            # CRITICAL: Clear team_id and team_role from users table
+            # This ensures effective tier calculation reverts to individual tier
+            self.storage.client.table('users').update({
+                'team_id': None,
+                'team_role': None
+            }).eq('id', member_id).execute()
+            
+            # Invalidate cache since team membership changed
+            self._invalidate_team_cache(team_id)
             
             return {
                 "success": True,
@@ -244,8 +354,18 @@ class TeamManager:
             if member_check.data[0]['role'] == 'owner':
                 return {"success": False, "error": "Team owners cannot leave. Transfer ownership or delete the team."}
             
-            # Remove member
+            # Remove member from team_members table
             self.storage.client.table('team_members').delete().eq('team_id', team_id).eq('user_id', user_id).execute()
+            
+            # CRITICAL: Clear team_id and team_role from users table
+            # This ensures effective tier calculation reverts to individual tier
+            self.storage.client.table('users').update({
+                'team_id': None,
+                'team_role': None
+            }).eq('id', user_id).execute()
+            
+            # Invalidate cache since team membership changed
+            self._invalidate_team_cache(team_id)
             
             return {
                 "success": True,
@@ -260,15 +380,15 @@ class TeamManager:
     def check_team_quota(self, team_id: str, email_count: int = 1) -> bool:
         """Check if team has enough quota for validation"""
         try:
-            result = self.storage.execute_function('check_team_quota', [team_id, email_count])
-            return result.data[0]['check_team_quota'] if result.data else False
+            result = self.storage.client.rpc('check_team_quota', {'team_uuid': team_id, 'email_count': email_count}).execute()
+            return result.data if result.data else False
         except:
             return False
     
     def use_team_quota(self, team_id: str, email_count: int = 1) -> bool:
         """Use team quota for validation"""
         try:
-            self.storage.execute_function('increment_team_quota', [team_id, email_count])
+            self.storage.client.rpc('increment_team_quota', {'team_uuid': team_id, 'email_count': email_count}).execute()
             return True
         except:
             return False
@@ -290,59 +410,159 @@ class TeamManager:
         return f"invite_{secrets.token_urlsafe(32)}"
     
     def send_invitation_email(self, email: str, invite_link: str, team_id: str, inviter_id: str, message: str = ""):
-        """Send invitation email (optional feature)"""
+        """Send invitation email using SendGrid"""
         try:
             # Get team and inviter info
-            team_info = self.storage.client.table('teams').select('name').eq('id', team_id).execute()
+            team_info = self.storage.client.table('teams').select('name, description').eq('id', team_id).execute()
             inviter_info = self.storage.client.table('users').select('first_name, last_name, email').eq('id', inviter_id).execute()
             
             if not team_info.data or not inviter_info.data:
-                return False
+                return {"success": False, "error": "Team or inviter not found"}
             
             team_name = team_info.data[0]['name']
+            team_description = team_info.data[0].get('description', '')
             inviter_name = f"{inviter_info.data[0]['first_name']} {inviter_info.data[0]['last_name']}"
+            inviter_email = inviter_info.data[0]['email']
             
-            # Email content
-            subject = f"You're invited to join {team_name} on Email Validator"
+            # Check if SendGrid is configured
+            sendgrid_key = os.getenv('SENDGRID_API_KEY')
+            if not sendgrid_key or sendgrid_key == 'your_sendgrid_api_key_here':
+                return {"success": False, "error": "SendGrid not configured"}
             
+            # Import SendGrid
+            from sendgrid import SendGridAPIClient
+            from sendgrid.helpers.mail import Mail, Email, To, Content
+            
+            # Email configuration
+            from_email = Email(os.getenv('DEFAULT_FROM_EMAIL', 'noreply@emailvalidator.com'), 
+                             os.getenv('DEFAULT_FROM_NAME', 'Email Validator'))
+            to_email = To(email)
+            subject = f"🎉 You're invited to join {team_name} on Email Validator"
+            
+            # Create HTML content
             html_content = f"""
+            <!DOCTYPE html>
             <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Team Invitation</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+                    .content {{ background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }}
+                    .invite-button {{ display: inline-block; background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 20px 0; }}
+                    .benefits {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                    .benefit-item {{ padding: 8px 0; border-bottom: 1px solid #eee; }}
+                    .footer {{ text-align: center; color: #666; font-size: 14px; margin-top: 30px; }}
+                </style>
+            </head>
             <body>
-                <h2>Team Invitation</h2>
-                <p>Hi there!</p>
-                <p><strong>{inviter_name}</strong> has invited you to join the team <strong>"{team_name}"</strong> on Email Validator.</p>
+                <div class="header">
+                    <h1>🚀 Team Invitation</h1>
+                    <p>You've been invited to join a team!</p>
+                </div>
                 
-                {f'<p><em>Personal message:</em> {message}</p>' if message else ''}
+                <div class="content">
+                    <h2>Hi there! 👋</h2>
+                    
+                    <p><strong>{inviter_name}</strong> ({inviter_email}) has invited you to join the team <strong>"{team_name}"</strong> on Email Validator.</p>
+                    
+                    {f'<div style="background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 15px 0;"><strong>Personal message:</strong><br><em>"{message}"</em></div>' if message else ''}
+                    
+                    {f'<p><strong>About the team:</strong> {team_description}</p>' if team_description else ''}
+                    
+                    <div class="benefits">
+                        <h3>🎁 What you'll get as a team member:</h3>
+                        <div class="benefit-item">✅ <strong>Pro tier access</strong> with shared 10 million lifetime validations</div>
+                        <div class="benefit-item">✅ <strong>Advanced email validation</strong> features and analytics</div>
+                        <div class="benefit-item">✅ <strong>Team collaboration</strong> and shared validation history</div>
+                        <div class="benefit-item">✅ <strong>Priority support</strong> and premium features</div>
+                    </div>
+                    
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{invite_link}" class="invite-button">🎯 Accept Invitation & Join Team</a>
+                    </div>
+                    
+                    <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
+                        <strong>⏰ Important:</strong> This invitation expires in 7 days. Don't miss out!
+                    </div>
+                    
+                    <p><strong>New to Email Validator?</strong> No problem! When you click the link above, you'll be guided through creating your account and automatically joining the team.</p>
+                </div>
                 
-                <p>As a team member, you'll get:</p>
-                <ul>
-                    <li>Pro tier access with shared 10,000 monthly validations</li>
-                    <li>Advanced email validation features</li>
-                    <li>Team collaboration and shared results</li>
-                </ul>
-                
-                <p><a href="{invite_link}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Accept Invitation</a></p>
-                
-                <p>This invitation expires in 7 days.</p>
-                
-                <p>If you don't have an account yet, you'll be prompted to create one when you click the link.</p>
-                
-                <p>Best regards,<br>Email Validator Team</p>
+                <div class="footer">
+                    <p>Best regards,<br><strong>Email Validator Team</strong></p>
+                    <p style="font-size: 12px; color: #999;">
+                        This invitation was sent by {inviter_name} ({inviter_email})<br>
+                        If you didn't expect this invitation, you can safely ignore this email.
+                    </p>
+                </div>
             </body>
             </html>
             """
             
-            # Send email using SendGrid (if configured)
-            sendgrid_key = os.getenv('SENDGRID_API_KEY')
-            if sendgrid_key and sendgrid_key != 'your_sendgrid_api_key_here':
-                # TODO: Implement SendGrid email sending
-                pass
+            # Create plain text version
+            text_content = f"""
+Team Invitation - Email Validator
+
+Hi there!
+
+{inviter_name} ({inviter_email}) has invited you to join the team "{team_name}" on Email Validator.
+
+{f'Personal message: "{message}"' if message else ''}
+
+As a team member, you'll get:
+• Pro tier access with shared 10 million lifetime validations
+• Advanced email validation features and analytics  
+• Team collaboration and shared validation history
+• Priority support and premium features
+
+Accept your invitation: {invite_link}
+
+This invitation expires in 7 days.
+
+If you don't have an account yet, you'll be guided through creating one when you click the link.
+
+Best regards,
+Email Validator Team
+
+---
+This invitation was sent by {inviter_name} ({inviter_email})
+If you didn't expect this invitation, you can safely ignore this email.
+            """
             
-            return True
+            # Create mail object
+            mail = Mail(
+                from_email=from_email,
+                to_emails=to_email,
+                subject=subject,
+                html_content=Content("text/html", html_content),
+                plain_text_content=Content("text/plain", text_content)
+            )
             
+            # Send email
+            sg = SendGridAPIClient(api_key=sendgrid_key)
+            response = sg.send(mail)
+            
+            if response.status_code in [200, 201, 202]:
+                return {
+                    "success": True, 
+                    "message": f"Invitation email sent to {email}",
+                    "email_sent": True
+                }
+            else:
+                return {
+                    "success": False, 
+                    "error": f"SendGrid error: {response.status_code}",
+                    "email_sent": False
+                }
+            
+        except ImportError:
+            return {"success": False, "error": "SendGrid library not installed. Run: pip install sendgrid"}
         except Exception as e:
             print(f"Error sending invitation email: {e}")
-            return False
+            return {"success": False, "error": f"Email sending failed: {str(e)}", "email_sent": False}
     
     def get_user_team(self, user_id: str) -> Optional[Dict]:
         """Get user's current team information"""

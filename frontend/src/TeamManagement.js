@@ -1,12 +1,33 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FiUsers, FiUser, FiLogOut, FiMoon, FiSun, FiActivity, FiZap } from 'react-icons/fi';
 import './TeamManagement.css';
+import { getCorrectApiLimit, formatApiUsageWithPeriod } from './utils/apiUtils';
 
 const TeamManagement = () => {
-    const [user, setUser] = useState(null);
+    const navigate = useNavigate();
+    
+    // Get user data from localStorage and auth token
+    const [user, setUser] = useState(() => {
+        const savedUser = localStorage.getItem('user');
+        return savedUser ? JSON.parse(savedUser) : null;
+    });
+    
+    const [authToken] = useState(() => {
+        return localStorage.getItem('authToken');
+    });
+    
     const [teamInfo, setTeamInfo] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [buttonLoading, setButtonLoading] = useState(false); // Separate loading state for buttons
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    
+    // Dark mode state
+    const [darkMode, setDarkMode] = useState(() => {
+        const saved = localStorage.getItem('darkMode');
+        return saved ? JSON.parse(saved) : false;
+    });
     
     // Team creation
     const [showCreateTeam, setShowCreateTeam] = useState(false);
@@ -14,46 +35,85 @@ const TeamManagement = () => {
     const [teamDescription, setTeamDescription] = useState('');
     
     // Team invitation
-    const [showInviteModal, setShowInviteModal] = useState(false);
-    const [inviteEmail, setInviteEmail] = useState('');
-    const [inviteMessage, setInviteMessage] = useState('');
     const [generatedInviteLink, setGeneratedInviteLink] = useState('');
     const [showLinkModal, setShowLinkModal] = useState(false);
     
     // Team eligibility
     const [canCreateTeam, setCanCreateTeam] = useState(false);
 
+    // Dark mode effect
+    useEffect(() => {
+        if (darkMode) {
+            document.body.classList.add('dark-mode');
+        } else {
+            document.body.classList.remove('dark-mode');
+        }
+        localStorage.setItem('darkMode', JSON.stringify(darkMode));
+    }, [darkMode]);
+
+    const toggleDarkMode = () => {
+        setDarkMode(!darkMode);
+    };
+
+    const handleLogout = async () => {
+        try {
+            if (authToken) {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Logout error:', error);
+        } finally {
+            // Clear local storage
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('user');
+            
+            // Redirect to home
+            navigate('/');
+        }
+    };
+
     useEffect(() => {
         // Initial load
         checkUserStatus();
         
-        // Set up auto-refresh every 30 seconds (reduced from 10 for better performance)
+        // Real-time polling every 10 seconds for team updates (optimized for production)
         const interval = setInterval(() => {
-            if (teamInfo && !loading) {
+            if (!loading) {
                 checkUserStatus();
             }
-        }, 30000); // Refresh every 30 seconds
+        }, 10000); // Reduced frequency for production
         
-        // Refresh when page becomes visible (user comes back from invitation)
+        // Immediate refresh when page becomes visible
         const handleVisibilityChange = () => {
             if (!document.hidden) {
                 checkUserStatus();
             }
         };
         
-        document.addEventListener('visibilitychange', handleVisibilityChange);
+        // Immediate refresh when window gets focus
+        const handleFocus = () => {
+            checkUserStatus();
+        };
         
-        // Cleanup interval and event listener on unmount
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', handleFocus);
+        
+        // Cleanup interval and event listeners on unmount
         return () => {
             clearInterval(interval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', handleFocus);
         };
     }, []); // Empty dependency array - only run once on mount
 
     const getAuthHeaders = () => {
-        const token = localStorage.getItem('authToken');
         return {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${authToken}`,
             'Content-Type': 'application/json'
         };
     };
@@ -63,24 +123,51 @@ const TeamManagement = () => {
             setLoading(true);
             setError(''); // Clear previous errors
             
-            // Single optimized API call to get all team status
-            const response = await fetch('/api/team/status', {
-                headers: getAuthHeaders()
-            });
+            // OPTIMIZED: Make both API calls in parallel for faster loading
+            const promises = [];
             
-            if (response.ok) {
-                const data = await response.json();
-                setCanCreateTeam(data.can_create_team);
-                
-                // Set team info if user is in a team
-                if (data.team_info && data.team_info.success) {
-                    setTeamInfo(data.team_info);
-                } else {
-                    setTeamInfo(null);
+            // Add user data refresh if authenticated
+            if (authToken) {
+                promises.push(
+                    fetch('/api/auth/me', {
+                        headers: getAuthHeaders()
+                    }).then(response => ({ type: 'user', response }))
+                );
+            }
+            
+            // Add team status call
+            promises.push(
+                fetch('/api/team/status', {
+                    headers: getAuthHeaders()
+                }).then(response => ({ type: 'team', response }))
+            );
+            
+            // Execute both calls in parallel
+            const results = await Promise.all(promises);
+            
+            // Process results
+            for (const result of results) {
+                if (result.type === 'user' && result.response.ok) {
+                    const userData = await result.response.json();
+                    const updatedUser = userData.user;
+                    setUser(updatedUser);
+                    localStorage.setItem('user', JSON.stringify(updatedUser));
+                } else if (result.type === 'team') {
+                    if (result.response.ok) {
+                        const data = await result.response.json();
+                        setCanCreateTeam(data.can_create_team);
+                        
+                        // Set team info if user is in a team
+                        if (data.team_info && data.team_info.success) {
+                            setTeamInfo(data.team_info);
+                        } else {
+                            setTeamInfo(null);
+                        }
+                    } else {
+                        const errorData = await result.response.json();
+                        setError(errorData.error || 'Failed to load team information');
+                    }
                 }
-            } else {
-                const errorData = await response.json();
-                setError(errorData.error || 'Failed to load team information');
             }
         } catch (err) {
             setError('Network error. Please check your connection.');
@@ -99,7 +186,7 @@ const TeamManagement = () => {
         }
 
         try {
-            setLoading(true);
+            setButtonLoading(true);
             const response = await fetch('/api/team/create', {
                 method: 'POST',
                 headers: getAuthHeaders(),
@@ -123,13 +210,13 @@ const TeamManagement = () => {
         } catch (err) {
             setError('Network error. Please try again.');
         } finally {
-            setLoading(false);
+            setButtonLoading(false);
         }
     };
 
     const generateInviteLink = async () => {
         try {
-            setLoading(true);
+            setButtonLoading(true); // Use separate button loading state
             setError('');
             
             // Generate a unique email to avoid "already invited" errors
@@ -140,7 +227,7 @@ const TeamManagement = () => {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 body: JSON.stringify({
-                    email: genericEmail, // Use random email to avoid conflicts
+                    email: genericEmail,
                     message: 'Join our team!'
                 })
             });
@@ -159,16 +246,19 @@ const TeamManagement = () => {
                     setSuccess('Invite link generated and copied to clipboard!');
                 }
                 
-                checkUserStatus(); // Refresh team info
+                // Real-time refresh after generating link (don't block button)
+                setTimeout(() => checkUserStatus(), 500);
             } else {
                 setError(data.error || 'Failed to generate invite link');
             }
         } catch (err) {
             setError('Network error. Please try again.');
         } finally {
-            setLoading(false);
+            setButtonLoading(false); // Reset button loading state
         }
     };
+
+
 
     const removeMember = async (memberId) => {
         if (!window.confirm('Are you sure you want to remove this member?')) {
@@ -176,7 +266,7 @@ const TeamManagement = () => {
         }
 
         try {
-            setLoading(true);
+            setButtonLoading(true);
             const response = await fetch(`/api/team/members/${memberId}/remove`, {
                 method: 'DELETE',
                 headers: getAuthHeaders()
@@ -186,14 +276,14 @@ const TeamManagement = () => {
 
             if (response.ok) {
                 setSuccess('Member removed successfully');
-                checkUserStatus(); // Refresh team info
+                setTimeout(() => checkUserStatus(), 500); // Refresh team info
             } else {
                 setError(data.error || 'Failed to remove member');
             }
         } catch (err) {
             setError('Network error. Please try again.');
         } finally {
-            setLoading(false);
+            setButtonLoading(false);
         }
     };
 
@@ -203,7 +293,7 @@ const TeamManagement = () => {
         }
 
         try {
-            setLoading(true);
+            setButtonLoading(true);
             const response = await fetch('/api/team/leave', {
                 method: 'POST',
                 headers: getAuthHeaders()
@@ -213,74 +303,298 @@ const TeamManagement = () => {
 
             if (response.ok) {
                 setSuccess('Successfully left the team');
-                checkUserStatus(); // Refresh status
+                setTimeout(() => checkUserStatus(), 500); // Refresh status
             } else {
                 setError(data.error || 'Failed to leave team');
             }
         } catch (err) {
             setError('Network error. Please try again.');
         } finally {
-            setLoading(false);
+            setButtonLoading(false);
         }
     };
 
-    if (loading && !teamInfo && !canCreateTeam) {
+    // Check if user is authenticated
+    if (!user || !authToken) {
         return (
-            <div className="team-management">
-                <div className="team-header">
-                    <h2>Team Management</h2>
-                </div>
-                <div className="loading-skeleton">
-                    <div className="skeleton-card">
-                        <div className="skeleton-line skeleton-title"></div>
-                        <div className="skeleton-line skeleton-text"></div>
-                        <div className="skeleton-line skeleton-text short"></div>
+            <div className="App">
+                {/* Top Navigation Bar */}
+                <nav className="top-navbar">
+                    <div className="navbar-container">
+                        {/* Logo Section */}
+                        <div className="navbar-logo">
+                            <span className="logo-text" onClick={() => navigate('/')} style={{cursor: 'pointer'}}>LAGCI</span>
+                        </div>
+
+                        {/* Right Section */}
+                        <div className="navbar-right">
+                            {/* Dark Mode Toggle */}
+                            <button className="navbar-btn dark-mode-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+                                {darkMode ? <FiSun /> : <FiMoon />}
+                            </button>
+
+                            {/* Authentication Buttons */}
+                            <div className="auth-buttons">
+                                <button className="navbar-btn login-btn" onClick={() => navigate('/login')}>
+                                    Login
+                                </button>
+                                <button className="navbar-btn signup-btn" onClick={() => navigate('/signup')}>
+                                    Sign Up
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <div className="pro-container">
+                    <div className="pro-main-card">
+                        <div className="pro-content">
+                            <div className="profile-error">
+                                <h2>Access Denied</h2>
+                                <p>Please log in to access team management.</p>
+                                <button className="pro-validate-btn" onClick={() => navigate('/login')}>
+                                    Go to Login
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <style jsx>{`
-                    .loading-skeleton {
-                        padding: 20px;
-                    }
-                    .skeleton-card {
-                        background: #f8f9fa;
-                        border-radius: 8px;
-                        padding: 24px;
-                        margin-bottom: 16px;
-                    }
-                    .skeleton-line {
-                        height: 16px;
-                        background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
-                        background-size: 200% 100%;
-                        animation: loading 1.5s infinite;
-                        border-radius: 4px;
-                        margin-bottom: 12px;
-                    }
-                    .skeleton-title {
-                        height: 24px;
-                        width: 60%;
-                    }
-                    .skeleton-text {
-                        width: 80%;
-                    }
-                    .skeleton-text.short {
-                        width: 40%;
-                    }
-                    @keyframes loading {
-                        0% { background-position: 200% 0; }
-                        100% { background-position: -200% 0; }
-                    }
-                `}</style>
+            </div>
+        );
+    }
+
+    if (loading && !teamInfo && !canCreateTeam) {
+        return (
+            <div className="App">
+                {/* Top Navigation Bar */}
+                <nav className="top-navbar">
+                    <div className="navbar-container">
+                        {/* Logo Section */}
+                        <div className="navbar-logo">
+                            <span className="logo-text" onClick={() => navigate('/')} style={{cursor: 'pointer'}}>LAGCI</span>
+                        </div>
+
+                        {/* Center Section - User Info */}
+                        <div className="navbar-center">
+                            <div className="user-greeting">
+                                <span className="wave-icon">👋</span>
+                                <span className="greeting-text">Welcome, {user.firstName}!</span>
+                            </div>
+                        </div>
+
+                        {/* Right Section - API Usage & Controls */}
+                        <div className="navbar-right">
+                            {/* Dark Mode Toggle */}
+                            <button className="navbar-btn dark-mode-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+                                {darkMode ? <FiSun /> : <FiMoon />}
+                            </button>
+
+                            {/* API Usage Counter */}
+                            <div className={`api-usage-counter ${
+                                user.subscriptionTier === 'pro' ? 'pro-tier' : ''
+                            } ${(() => {
+                                // Use team quota if user is in a team, otherwise individual quota
+                                const isInTeam = user.teamId && user.teamInfo;
+                                const currentUsage = isInTeam ? (user.teamInfo.quota_used || 0) : (user.apiCallsCount || 0);
+                                const currentLimit = isInTeam ? (user.teamInfo.quota_limit || 10000000) : getCorrectApiLimit(user.subscriptionTier);
+                                
+                                return currentUsage >= currentLimit ? 'limit-reached' : 
+                                       currentUsage >= currentLimit * 0.8 ? 'limit-warning' : '';
+                            })()}`}>
+                                <FiActivity className="usage-icon" />
+                                <span className="usage-text">
+                                    {(() => {
+                                        // Display team quota if user is in a team
+                                        const isInTeam = user.teamId && user.teamInfo;
+                                        if (isInTeam) {
+                                            const teamUsage = user.teamInfo.quota_used || 0;
+                                            const teamLimit = user.teamInfo.quota_limit || 10000000;
+                                            return `${teamUsage.toLocaleString()}/${teamLimit.toLocaleString()} (Team)`;
+                                        } else {
+                                            return formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier);
+                                        }
+                                    })()}
+                                </span>
+                                <span className="usage-label">
+                                    {user.teamId && user.teamInfo ? 'Team Quota' : 
+                                     user.subscriptionTier === 'free' ? 'Free' : 
+                                     user.subscriptionTier === 'starter' ? 'Starter' : 
+                                     user.subscriptionTier === 'pro' ? 'Pro' : 'API Calls'}
+                                </span>
+                            </div>
+
+                            {/* Authentication Buttons */}
+                            <div className="auth-buttons">
+                                <button className="navbar-btn profile-btn" onClick={() => navigate('/profile')}>
+                                    <FiUser /> Profile
+                                </button>
+                                <button className="navbar-btn team-btn" onClick={() => navigate('/team')} style={{background: '#007bff'}}>
+                                    <FiUsers /> Team
+                                </button>
+                                <button className="navbar-btn logout-btn" onClick={handleLogout}>
+                                    <FiLogOut /> Logout
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <div className="pro-container">
+                    <div className="pro-main-card">
+                        <div className="loading-skeleton">
+                            <div className="skeleton-card">
+                                <div className="skeleton-line skeleton-title"></div>
+                                <div className="skeleton-line skeleton-text"></div>
+                                <div className="skeleton-line skeleton-text short"></div>
+                            </div>
+                        </div>
+                        <style jsx>{`
+                            .loading-skeleton {
+                                padding: 20px;
+                            }
+                            .skeleton-card {
+                                background: #f8f9fa;
+                                border-radius: 8px;
+                                padding: 24px;
+                                margin-bottom: 16px;
+                            }
+                            .skeleton-line {
+                                height: 16px;
+                                background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+                                background-size: 200% 100%;
+                                animation: loading 1.5s infinite;
+                                border-radius: 4px;
+                                margin-bottom: 12px;
+                            }
+                            .skeleton-title {
+                                height: 24px;
+                                width: 60%;
+                            }
+                            .skeleton-text {
+                                width: 80%;
+                            }
+                            .skeleton-text.short {
+                                width: 40%;
+                            }
+                            @keyframes loading {
+                                0% { background-position: 200% 0; }
+                                100% { background-position: -200% 0; }
+                            }
+                        `}</style>
+                    </div>
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="team-management">
-            <div className="team-header">
-                <h2>Team Management</h2>
-                {error && <div className="error-message">{error}</div>}
-                {success && <div className="success-message">{success}</div>}
-            </div>
+        <div className="App">
+            {/* Top Navigation Bar */}
+            <nav className="top-navbar">
+                <div className="navbar-container">
+                    {/* Logo Section */}
+                    <div className="navbar-logo">
+                        <span className="logo-text" onClick={() => navigate('/')} style={{cursor: 'pointer'}}>LAGCI</span>
+                    </div>
+
+                    {/* Center Section - User Info */}
+                    <div className="navbar-center">
+                        <div className="user-greeting">
+                            <span className="wave-icon">👋</span>
+                            <span className="greeting-text">Welcome, {user.firstName}!</span>
+                        </div>
+                    </div>
+
+                    {/* Right Section - API Usage & Controls */}
+                    <div className="navbar-right">
+                        {/* Dark Mode Toggle */}
+                        <button className="navbar-btn dark-mode-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+                            {darkMode ? <FiSun /> : <FiMoon />}
+                        </button>
+
+                        {/* API Usage Counter */}
+                        <div className={`api-usage-counter ${
+                            user.subscriptionTier === 'pro' ? 'pro-tier' : ''
+                        } ${(() => {
+                            // Use team quota if user is in a team, otherwise individual quota
+                            const isInTeam = user.teamId && user.teamInfo;
+                            const currentUsage = isInTeam ? (user.teamInfo.quota_used || 0) : (user.apiCallsCount || 0);
+                            const currentLimit = isInTeam ? (user.teamInfo.quota_limit || 10000000) : getCorrectApiLimit(user.subscriptionTier);
+                            
+                            return currentUsage >= currentLimit ? 'limit-reached' : 
+                                   currentUsage >= currentLimit * 0.8 ? 'limit-warning' : '';
+                        })()}`}>
+                            <FiActivity className="usage-icon" />
+                            <span className="usage-text">
+                                {(() => {
+                                    // Display team quota if user is in a team
+                                    const isInTeam = user.teamId && user.teamInfo;
+                                    if (isInTeam) {
+                                        const teamUsage = user.teamInfo.quota_used || 0;
+                                        const teamLimit = user.teamInfo.quota_limit || 10000000;
+                                        return `${teamUsage.toLocaleString()}/${teamLimit.toLocaleString()} (Team)`;
+                                    } else {
+                                        return formatApiUsageWithPeriod(user.apiCallsCount || 0, user.apiCallsLimit, user.subscriptionTier);
+                                    }
+                                })()}
+                            </span>
+                            <span className="usage-label">
+                                {user.teamId && user.teamInfo ? 'Team Quota' : 
+                                 user.subscriptionTier === 'free' ? 'Free' : 
+                                 user.subscriptionTier === 'starter' ? 'Starter' : 
+                                 user.subscriptionTier === 'pro' ? 'Pro' : 'API Calls'}
+                            </span>
+                            {['free', 'starter'].includes(user.subscriptionTier) && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) && (
+                                <div className="upgrade-hint">
+                                    <FiZap style={{marginRight: '4px'}} /> {user.subscriptionTier === 'free' ? 'Upgrade to Starter!' : 'Upgrade to Pro!'}
+                                </div>
+                            )}
+                            {user.subscriptionTier === 'pro' && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier) * 0.8 && (
+                                <div className="usage-hint">
+                                    <FiActivity style={{marginRight: '4px'}} /> High usage!
+                                </div>
+                            )}
+                            {user.subscriptionTier === 'pro' && (
+                                <div className="pro-badge-hint">
+                                    💎 Pro Features Unlocked!
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Authentication Buttons */}
+                        <div className="auth-buttons">
+                            <button className="navbar-btn profile-btn" onClick={() => navigate('/profile')}>
+                                <FiUser /> Profile
+                            </button>
+                            <button className="navbar-btn team-btn" onClick={() => navigate('/team')} style={{background: '#007bff'}}>
+                                <FiUsers /> Team
+                            </button>
+                            <button className="navbar-btn logout-btn" onClick={handleLogout}>
+                                <FiLogOut /> Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <div className="pro-container">
+                {/* Simplified Header */}
+                <header className="pro-header-simple">
+                    <div className="pro-header-title">
+                        <h1><FiUsers /> Team Management</h1>
+                    </div>
+                    <p className="pro-header-subtitle">
+                        Collaborate with your team and share validation quotas
+                    </p>
+                </header>
+
+                {/* Main Card */}
+                <div className="pro-main-card">
+                    <div className="team-management">
+                        <div className="team-header">
+                            {error && <div className="error-message">{error}</div>}
+                            {success && <div className="success-message">{success}</div>}
+                        </div>
 
             {/* No Team - Show Create Option */}
             {canCreateTeam && !teamInfo && (
@@ -305,6 +619,8 @@ const TeamManagement = () => {
                     </div>
                 </div>
             )}
+
+
 
             {/* Create Team Modal */}
             {showCreateTeam && (
@@ -346,8 +662,8 @@ const TeamManagement = () => {
                                 <button type="button" onClick={() => setShowCreateTeam(false)}>
                                     Cancel
                                 </button>
-                                <button type="submit" className="primary">
-                                    Create Team
+                                <button type="submit" className="primary" disabled={buttonLoading}>
+                                    {buttonLoading ? 'Creating...' : 'Create Team'}
                                 </button>
                             </div>
                         </form>
@@ -379,12 +695,28 @@ const TeamManagement = () => {
                             <div className="quota-bar">
                                 <div 
                                     className="quota-fill"
-                                    style={{ width: `${teamInfo.team.usage_percentage}%` }}
+                                    style={{ 
+                                        width: `${(() => {
+                                            const quotaUsed = teamInfo.team.quota_used || 0;
+                                            const quotaLimit = teamInfo.team.quota_limit || 10000000;
+                                            const percentage = (quotaUsed / quotaLimit) * 100;
+                                            // Ensure minimum visible width for small percentages (0.5% minimum)
+                                            return Math.max(percentage, quotaUsed > 0 ? 0.5 : 0);
+                                        })()}%` 
+                                    }}
                                 />
                             </div>
                             <div className="quota-details">
                                 <span>{teamInfo.team.quota_used.toLocaleString()} / {teamInfo.team.quota_limit.toLocaleString()} validations</span>
-                                <span>{teamInfo.team.usage_percentage}% used</span>
+                                <span>
+                                    {(() => {
+                                        const quotaUsed = teamInfo.team.quota_used || 0;
+                                        const quotaLimit = teamInfo.team.quota_limit || 10000000;
+                                        const percentage = (quotaUsed / quotaLimit) * 100;
+                                        // Show 3 decimal places for small percentages, round for larger ones
+                                        return percentage < 1 && percentage > 0 ? percentage.toFixed(3) : Math.round(percentage);
+                                    })()}% used
+                                </span>
                             </div>
                             <p className="quota-reset">
                                 Lifetime quota (no reset)
@@ -398,26 +730,21 @@ const TeamManagement = () => {
                             <button 
                                 className="invite-btn"
                                 onClick={generateInviteLink}
-                                disabled={loading}
-                            >
-                                {loading ? 'Generating...' : '🔗 Generate Invite Link'}
-                            </button>
-                            
-                            <button 
-                                className="refresh-btn"
-                                onClick={() => checkUserStatus()}
-                                disabled={loading}
+                                disabled={buttonLoading}
                                 style={{
-                                    marginLeft: '12px',
-                                    background: '#6c757d',
+                                    background: buttonLoading ? '#6c757d' : '#28a745',
                                     color: 'white',
                                     border: 'none',
-                                    padding: '10px 20px',
+                                    padding: '12px 24px',
                                     borderRadius: '6px',
-                                    cursor: 'pointer'
+                                    cursor: buttonLoading ? 'not-allowed' : 'pointer',
+                                    fontSize: '16px',
+                                    fontWeight: '500',
+                                    opacity: buttonLoading ? 0.7 : 1,
+                                    transition: 'all 0.2s ease'
                                 }}
                             >
-                                🔄 Refresh
+                                {buttonLoading ? 'Generating...' : '🔗 Generate Invite Link'}
                             </button>
                         </div>
                     )}
@@ -450,12 +777,20 @@ const TeamManagement = () => {
                         </div>
                     </div>
 
-                    {/* Pending Invitations */}
-                    {teamInfo.pending_invitations && teamInfo.pending_invitations.length > 0 && (
+                    {/* Pending Invitations - Only show real email invitations, not temp ones */}
+                    {teamInfo.pending_invitations && teamInfo.pending_invitations.filter(invite => 
+                        !invite.email.includes('@temp.com') && 
+                        !invite.email.startsWith('invite-')
+                    ).length > 0 && (
                         <div className="pending-invitations">
-                            <h4>Pending Invitations ({teamInfo.pending_invitations.length})</h4>
+                            <h4>Pending Invitations ({teamInfo.pending_invitations.filter(invite => 
+                                !invite.email.includes('@temp.com') && 
+                                !invite.email.startsWith('invite-')
+                            ).length})</h4>
                             <div className="invitations-list">
-                                {teamInfo.pending_invitations.map(invite => (
+                                {teamInfo.pending_invitations
+                                    .filter(invite => !invite.email.includes('@temp.com') && !invite.email.startsWith('invite-'))
+                                    .map(invite => (
                                     <div key={invite.id} className="invitation-card">
                                         <div className="invite-email">{invite.email}</div>
                                         <div className="invite-date">
@@ -535,19 +870,24 @@ const TeamManagement = () => {
                                 <button 
                                     className="btn-secondary"
                                     onClick={() => {
-                                        const subject = encodeURIComponent('Join our team!');
-                                        const body = encodeURIComponent(`You're invited to join our team!\n\nClick this link to accept: ${generatedInviteLink}`);
-                                        window.open(`mailto:?subject=${subject}&body=${body}`);
+                                        const text = `Join our team! ${generatedInviteLink}`;
+                                        if (navigator.share) {
+                                            navigator.share({ title: 'Team Invitation', text: text });
+                                        } else {
+                                            const subject = encodeURIComponent('Join our team!');
+                                            const body = encodeURIComponent(`You're invited to join our team!\n\nClick this link to accept: ${generatedInviteLink}`);
+                                            window.open(`mailto:?subject=${subject}&body=${body}`);
+                                        }
                                     }}
                                 >
-                                    📧 Open Email
+                                    📤 Share Link
                                 </button>
                             </div>
                             
                             <div style={{ fontSize: '14px', color: '#666' }}>
                                 <p><strong>How it works:</strong></p>
                                 <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                                    <li>Send this link to the person you want to invite</li>
+                                    <li>Share this link via WhatsApp, Slack, email, or any method</li>
                                     <li>They'll see an invitation page with team details</li>
                                     <li>They can register a new account or login</li>
                                     <li>They'll automatically get Pro access and join your team</li>
@@ -573,6 +913,9 @@ const TeamManagement = () => {
                 <div className="not-eligible">
                     <h3>Team Features</h3>
                     <p>Team collaboration is available for Starter and Pro users.</p>
+                    
+
+                    
                     <div className="upgrade-prompt">
                         <p>Upgrade to Starter or Pro to:</p>
                         <ul>
@@ -587,6 +930,9 @@ const TeamManagement = () => {
                     </div>
                 </div>
             )}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
