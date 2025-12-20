@@ -2262,7 +2262,6 @@ def validate_batch_authenticated():
 
             # Block batch validation for free tier users only (starter+ can use batch validation)
             if subscription_tier == 'free':
-
                 return jsonify({
                     'error': 'Feature not available',
                     'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter (10K/month) or Pro (10M lifetime) to access batch processing!',
@@ -2270,9 +2269,8 @@ def validate_batch_authenticated():
                     'upgrade_required': True
                 }), 403
             else:
-
-            # Check API limits using new tier-aware system
-            can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
+                # Check API limits using new tier-aware system
+                can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
             
             if not can_validate:
                 if subscription_tier == 'starter':
@@ -2562,7 +2560,6 @@ def validate_batch_stream():
 
             # Block batch validation for free tier users only (starter+ can use batch validation)
             if subscription_tier == 'free':
-
                 return jsonify({
                     'error': 'Feature not available',
                     'message': 'Batch validation is available for Starter tier and above. Upgrade to Starter (10K/month) or Pro (10M lifetime) to access batch processing!',
@@ -2570,9 +2567,8 @@ def validate_batch_stream():
                     'upgrade_required': True
                 }), 403
             else:
-
-            # Check API limits using new tier-aware system
-            can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
+                # Check API limits using new tier-aware system
+                can_validate, current_usage, limit = check_api_limits(authenticated_user, is_admin)
             
             if not can_validate:
                 if subscription_tier == 'starter':
@@ -2894,8 +2890,9 @@ def validate_batch_stream():
                                 'is_team_quota': False
                             }
                 except Exception as e:
+                    logger.error(f"Failed to save validation: {e}")
 
-            # Send completion event
+                # Send completion event
             completion_data = {
                 'type': 'complete',
                 'total': total,
