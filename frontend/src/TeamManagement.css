@@ -1,8 +1,82 @@
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f9fafb;
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --border-color: #eef2f7;
+    --card-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+}
+
+body.dark-mode {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #252c3c;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --border-color: #3d4556;
+    --card-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+
 .team-management {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    transition: background 150ms ease, color 150ms ease;
+}
+
+/* Shimmer skeleton - single animation for all loaders */
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.skeleton-line {
+    height: 14px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--border-color) 25%, #e2e8f0 50%, var(--border-color) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite;
+    margin-bottom: 10px;
+}
+
+.skeleton-title { height: 20px; width: 60%; }
+.skeleton-text { width: 80%; }
+.skeleton-text.short { width: 40%; }
+
+.skeleton-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.skeleton-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(90deg, var(--border-color) 25%, #e2e8f0 50%, var(--border-color) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite;
+}
+
+.fade-in {
+    opacity: 0;
+    transform: translateY(6px);
+    animation: fadeIn 240ms ease forwards;
+}
+
+@keyframes fadeIn {
+    to { opacity: 1; transform: none; }
+}
+
+.loading-bar {
+    height: 4px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--border-color) 25%, #cbd5e1 50%, var(--border-color) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s infinite;
 }
 
 .team-header {
@@ -10,26 +84,30 @@
 }
 
 .team-header h2 {
-    color: #2c3e50;
+    color: var(--text-primary);
     margin-bottom: 10px;
+    font-size: 28px;
+    font-weight: 700;
 }
 
 .error-message {
-    background: #fee;
-    color: #c33;
-    padding: 12px;
-    border-radius: 6px;
+    background: #fee7e7;
+    color: #b91c1c;
+    padding: 12px 16px;
+    border-radius: 8px;
     margin: 10px 0;
-    border: 1px solid #fcc;
+    border: 1px solid #fca5a5;
+    font-weight: 500;
 }
 
 .success-message {
-    background: #efe;
-    color: #363;
-    padding: 12px;
-    border-radius: 6px;
+    background: #dcfce7;
+    color: #166534;
+    padding: 12px 16px;
+    border-radius: 8px;
     margin: 10px 0;
-    border: 1px solid #cfc;
+    border: 1px solid #86efac;
+    font-weight: 500;
 }
 
 .loading {
@@ -40,15 +118,18 @@
 
 /* No Team Section */
 .no-team-section {
-    background: #f8f9fa;
+    background: var(--bg-secondary);
     border-radius: 12px;
     padding: 30px;
     text-align: center;
+    border: 1px solid var(--border-color);
 }
 
 .team-benefits h3 {
-    color: #2c3e50;
+    color: var(--text-primary);
     margin-bottom: 15px;
+    font-weight: 700;
+    font-size: 20px;
 }
 
 .benefits-list {
@@ -59,6 +140,7 @@
     padding: 8px 0;
     color: #27ae60;
     font-weight: 500;
+    font-size: 14px;
 }
 
 .create-team-btn {
@@ -91,13 +173,14 @@
 }
 
 .modal {
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 12px;
     padding: 0;
     width: 90%;
     max-width: 500px;
     max-height: 90vh;
     overflow-y: auto;
+    color: var(--text-primary);
 }
 
 .modal-header {
@@ -105,12 +188,13 @@
     justify-content: space-between;
     align-items: center;
     padding: 20px 24px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .modal-header h3 {
     margin: 0;
-    color: #2c3e50;
+    color: var(--text-primary);
+    font-weight: 700;
 }
 
 .close-btn {
@@ -118,7 +202,7 @@
     border: none;
     font-size: 24px;
     cursor: pointer;
-    color: #999;
+    color: var(--text-secondary);
     padding: 0;
     width: 30px;
     height: 30px;
@@ -128,7 +212,7 @@
 }
 
 .close-btn:hover {
-    color: #666;
+    color: var(--text-primary);
 }
 
 .modal form {
@@ -142,18 +226,22 @@
 .form-group label {
     display: block;
     margin-bottom: 6px;
-    font-weight: 500;
-    color: #2c3e50;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
 }
 
 .form-group input,
 .form-group textarea {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     font-size: 14px;
     box-sizing: border-box;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
 }
 
 .form-group input:focus,
@@ -161,6 +249,7 @@
     outline: none;
     border-color: #3498db;
     box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+    background: var(--bg-primary);
 }
 
 .modal-actions {
@@ -190,10 +279,12 @@
 
 /* Team Dashboard */
 .team-dashboard {
-    background: white;
-    border-radius: 12px;
-    padding: 24px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    background: var(--bg-secondary);
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: var(--card-shadow);
+    border: 1px solid var(--border-color);
+    transition: background-color 200ms ease, border-color 200ms ease;
 }
 
 .team-overview {
@@ -204,13 +295,16 @@
 }
 
 .team-info h3 {
-    color: #2c3e50;
+    color: var(--text-primary);
     margin-bottom: 8px;
+    font-weight: 700;
 }
 
 .team-description {
-    color: #666;
+    color: var(--text-secondary);
     margin-bottom: 20px;
+    font-size: 14px;
+    line-height: 1.6;
 }
 
 .team-stats {
@@ -225,11 +319,15 @@
 }
 
 .stat .label {
-    color: #666;
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 13px;
 }
 
 .stat .value {
-    font-weight: 500;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 13px;
 }
 
 .stat .value.role {
@@ -239,36 +337,39 @@
 
 /* Quota Info */
 .quota-info h4 {
-    color: #2c3e50;
+    color: var(--text-primary);
     margin-bottom: 15px;
+    font-weight: 700;
+    font-size: 16px;
 }
 
 .quota-bar {
     width: 100%;
-    height: 8px;
-    background: #ecf0f1;
-    border-radius: 4px;
+    height: 10px;
+    background: var(--border-color);
+    border-radius: 6px;
     overflow: hidden;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .quota-fill {
     height: 100%;
-    background: linear-gradient(90deg, #27ae60, #f39c12, #e74c3c);
-    transition: width 0.3s ease;
+    background: linear-gradient(90deg, #22c55e, #f59e0b, #ef4444);
+    transition: width 200ms ease;
 }
 
 .quota-details {
     display: flex;
     justify-content: space-between;
-    font-size: 14px;
-    color: #666;
+    font-size: 13px;
+    color: var(--text-secondary);
     margin-bottom: 8px;
+    font-weight: 500;
 }
 
 .quota-reset {
     font-size: 12px;
-    color: #999;
+    color: var(--text-secondary);
     margin: 0;
 }
 
@@ -293,8 +394,10 @@
 
 /* Team Members */
 .team-members h4 {
-    color: #2c3e50;
+    color: var(--text-primary);
     margin-bottom: 15px;
+    font-weight: 700;
+    font-size: 16px;
 }
 
 .members-list {
@@ -307,9 +410,10 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px;
-    background: #f8f9fa;
-    border-radius: 8px;
-    border: 1px solid #e9ecef;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    transition: background-color 150ms ease, border-color 150ms ease;
 }
 
 .member-info {
@@ -317,14 +421,15 @@
 }
 
 .member-name {
-    font-weight: 500;
-    color: #2c3e50;
+    font-weight: 700;
+    color: var(--text-primary);
     margin-bottom: 4px;
+    font-size: 14px;
 }
 
 .member-email {
-    color: #666;
-    font-size: 14px;
+    color: var(--text-secondary);
+    font-size: 13px;
     margin-bottom: 4px;
 }
 
@@ -332,13 +437,14 @@
     font-size: 12px;
     text-transform: capitalize;
     color: #3498db;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 .member-stats {
-    color: #666;
-    font-size: 14px;
+    color: var(--text-secondary);
+    font-size: 13px;
     margin-right: 15px;
+    font-weight: 500;
 }
 
 .remove-btn {
@@ -349,6 +455,7 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
+    font-weight: 500;
 }
 
 .remove-btn:hover {
@@ -361,8 +468,10 @@
 }
 
 .pending-invitations h4 {
-    color: #2c3e50;
+    color: var(--text-primary);
     margin-bottom: 15px;
+    font-weight: 700;
+    font-size: 16px;
 }
 
 .invitations-list {
@@ -375,32 +484,40 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px;
-    background: #fff3cd;
+    background: #fffbeb;
     border-radius: 8px;
-    border: 1px solid #ffeaa7;
+    border: 1px solid #fcd34d;
+}
+
+body.dark-mode .invitation-card {
+    background: rgba(180, 83, 9, 0.2);
+    border-color: rgba(217, 119, 6, 0.4);
 }
 
 .invite-email {
-    font-weight: 500;
-    color: #2c3e50;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
 }
 
 .invite-date,
 .invite-expires {
     font-size: 12px;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 /* Danger Zone */
 .danger-zone {
     margin-top: 40px;
     padding-top: 30px;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--border-color);
 }
 
 .danger-zone h4 {
     color: #e74c3c;
     margin-bottom: 15px;
+    font-weight: 700;
+    font-size: 16px;
 }
 
 .leave-team-btn {
@@ -412,6 +529,7 @@
     cursor: pointer;
     font-size: 14px;
     margin-bottom: 10px;
+    font-weight: 500;
 }
 
 .leave-team-btn:hover {
@@ -420,21 +538,24 @@
 
 .warning {
     font-size: 14px;
-    color: #666;
+    color: var(--text-secondary);
     margin: 0;
 }
 
 /* Not Eligible */
 .not-eligible {
-    background: #f8f9fa;
+    background: var(--bg-secondary);
     border-radius: 12px;
     padding: 30px;
     text-align: center;
+    border: 1px solid var(--border-color);
 }
 
 .not-eligible h3 {
-    color: #2c3e50;
+    color: var(--text-primary);
     margin-bottom: 15px;
+    font-weight: 700;
+    font-size: 20px;
 }
 
 .upgrade-prompt {
@@ -449,7 +570,8 @@
 
 .upgrade-prompt li {
     margin: 8px 0;
-    color: #666;
+    color: var(--text-secondary);
+    font-size: 14px;
 }
 
 .upgrade-btn {

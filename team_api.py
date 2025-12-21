@@ -306,11 +306,11 @@ def update_team(current_user_id):
 @team_bp.route('/status', methods=['GET'])
 @token_required
 def get_team_status(current_user_id):
-    """Get complete team status in a single optimized call"""
+    """Get lightweight team status quickly - fast load like Facebook profile"""
     try:
         storage = get_storage()
         
-        # Get user info first
+        # FAST: Get only user info (single query)
         user_result = storage.client.table('users').select('subscription_tier, team_id, team_role').eq('id', current_user_id).execute()
         if not user_result.data:
             return jsonify({'error': 'User not found'}), 404
@@ -321,19 +321,74 @@ def get_team_status(current_user_id):
             'can_create_team': user['subscription_tier'] in ['starter', 'pro'] and user['team_id'] is None,
             'subscription_tier': user['subscription_tier'],
             'in_team': user['team_id'] is not None,
-            'team_info': None
+            'team_info': None  # Return null initially for fast load
         }
         
-        # If user is in a team, get team info
-        if user['team_id']:
-            team_info = team_manager.get_team_info(user['team_id'], current_user_id)
-            if team_info['success']:
-                response['team_info'] = team_info
+        # IMPORTANT: Don't fetch full team_info here - just return fast status
+        # Frontend will fetch full team_info separately with /api/team/info endpoint
         
         return jsonify(response), 200
         
     except Exception as e:
         print(f"Error in get_team_status: {e}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@team_bp.route('/quick-info', methods=['GET'])
+@token_required
+def get_team_quick_info(current_user_id):
+    """Get lightweight team info without invitations and full member list - fast initial load"""
+    try:
+        storage = get_storage()
+        
+        # Get user's team
+        user_team = team_manager.get_user_team(current_user_id)
+        if not user_team:
+            return jsonify({'error': 'You are not in a team'}), 404
+        
+        team_id = user_team['team']['id']
+        
+        # FAST: Get only team basic info and member count (lightweight queries)
+        import concurrent.futures
+        
+        def get_team_dashboard():
+            return storage.client.table('team_dashboard').select('*').eq('id', team_id).execute()
+        
+        def get_member_count():
+            return storage.client.table('team_members').select('id', count='exact').eq('team_id', team_id).execute()
+        
+        # Execute in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            team_future = executor.submit(get_team_dashboard)
+            count_future = executor.submit(get_member_count)
+            
+            team_result = team_future.result()
+            count_result = count_future.result()
+        
+        if not team_result.data:
+            return jsonify({'error': 'Team not found'}), 404
+        
+        team_data = team_result.data[0]
+        # Prefer server-reported count if available, fallback to data length
+        member_count = getattr(count_result, 'count', len(count_result.data) if count_result.data else 0)
+        
+        return jsonify({
+            'success': True,
+            'team': {
+                'id': team_data['id'],
+                'name': team_data['name'],
+                'description': team_data['description'],
+                'created_at': team_data.get('created_at'),
+                'member_count': member_count,
+                'monthly_validations': team_data.get('monthly_validations'),
+                'monthly_validations_used': team_data.get('monthly_validations_used'),
+                'lifetime_validations': team_data.get('lifetime_validations'),
+                'lifetime_validations_used': team_data.get('lifetime_validations_used'),
+                'billing_email': team_data.get('billing_email')
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in get_team_quick_info: {e}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 def check_team_eligibility_fallback(current_user_id):
