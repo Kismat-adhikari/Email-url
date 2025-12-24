@@ -3,7 +3,7 @@ import {
   FiChevronLeft, FiChevronRight, FiChevronsLeft, FiChevronsRight,
   FiCheck, FiX, FiAlertTriangle, FiInfo, FiMail, FiShield
 } from 'react-icons/fi';
-import './BatchResultsPaginated.css';
+import './BatchValidation.css';
 
 // Memoized individual card component for better performance
 const ResultCard = React.memo(({ 
@@ -184,6 +184,9 @@ const BatchResultsPaginated = React.memo(({
   isHistory = false,
   onDeleteItem = null
 }) => {
+  // Defensive check: ensure results is always an array
+  const safeResults = Array.isArray(results) ? results : [];
+  
   const [currentPage, setCurrentPage] = useState(1);
   const [filterStatus, setFilterStatus] = useState('all'); // all, valid, invalid
   const [sortBy, setSortBy] = useState('index'); // index, confidence, email
@@ -192,13 +195,13 @@ const BatchResultsPaginated = React.memo(({
 
   // Filter and sort results
   const filteredAndSortedResults = useMemo(() => {
-    let filtered = results;
+    let filtered = safeResults;
 
     // Apply status filter
     if (filterStatus === 'valid') {
-      filtered = results.filter(item => item.valid);
+      filtered = safeResults.filter(item => item.valid);
     } else if (filterStatus === 'invalid') {
-      filtered = results.filter(item => !item.valid);
+      filtered = safeResults.filter(item => !item.valid);
     }
 
     // Apply sorting
@@ -217,7 +220,7 @@ const BatchResultsPaginated = React.memo(({
     }
 
     return sorted;
-  }, [results, filterStatus, sortBy]);
+  }, [safeResults, filterStatus, sortBy]);
 
   // Calculate pagination
   const totalItems = filteredAndSortedResults.length;
@@ -233,27 +236,27 @@ const BatchResultsPaginated = React.memo(({
 
   // Auto-follow latest results during streaming
   React.useEffect(() => {
-    if (isStreaming && followLatest && results.length > 0) {
+    if (isStreaming && followLatest && safeResults.length > 0) {
       const lastPage = Math.ceil(filteredAndSortedResults.length / itemsPerPage);
       if (lastPage > 0 && currentPage !== lastPage) {
         setCurrentPage(lastPage);
       }
     }
-  }, [results.length, isStreaming, followLatest, filteredAndSortedResults.length, itemsPerPage, currentPage]);
+  }, [safeResults.length, isStreaming, followLatest, filteredAndSortedResults.length, itemsPerPage, currentPage]);
 
   // Track newly added items for animation (optimized)
   const prevResultsLength = React.useRef(0);
   const animationTimeoutRef = React.useRef(null);
   
   React.useEffect(() => {
-    if (isStreaming && results.length > prevResultsLength.current) {
+    if (isStreaming && safeResults.length > prevResultsLength.current) {
       // Only highlight if we're adding a reasonable number of new items
-      const newItemsCount = results.length - prevResultsLength.current;
+      const newItemsCount = safeResults.length - prevResultsLength.current;
       
       if (newItemsCount <= 50) { // Only animate if adding 50 or fewer items
         const newItems = new Set();
-        for (let i = prevResultsLength.current; i < results.length; i++) {
-          newItems.add(results[i].email);
+        for (let i = prevResultsLength.current; i < safeResults.length; i++) {
+          newItems.add(safeResults[i].email);
         }
         setNewlyAdded(newItems);
         
@@ -268,8 +271,8 @@ const BatchResultsPaginated = React.memo(({
         }, 2000);
       }
     }
-    prevResultsLength.current = results.length;
-  }, [results, isStreaming]);
+    prevResultsLength.current = safeResults.length;
+  }, [safeResults, isStreaming]);
 
   // Cleanup timeout on unmount
   React.useEffect(() => {
@@ -283,11 +286,11 @@ const BatchResultsPaginated = React.memo(({
   // Optimize index lookup with memoization
   const emailToIndexMap = React.useMemo(() => {
     const map = new Map();
-    results.forEach((result, index) => {
+    safeResults.forEach((result, index) => {
       map.set(result.email, index + 1);
     });
     return map;
-  }, [results]);
+  }, [safeResults]);
 
   const getOriginalIndex = (item) => {
     return emailToIndexMap.get(item.email) || 1;
@@ -396,9 +399,9 @@ const BatchResultsPaginated = React.memo(({
         <div className="streaming-indicator">
           <div className="pulse-dot"></div>
           <span>🚀 Real-time validation in progress - Results appear as they're validated!</span>
-          {results.length > 0 && (
+          {safeResults.length > 0 && (
             <span style={{ marginLeft: '12px', opacity: 0.9 }}>
-              📊 {results.length} processed so far
+              📊 {safeResults.length} processed so far
             </span>
           )}
         </div>
@@ -412,9 +415,9 @@ const BatchResultsPaginated = React.memo(({
             onChange={(e) => setFilterStatus(e.target.value)}
             className="filter-select"
           >
-            <option value="all">All Results ({results.length})</option>
-            <option value="valid">Valid Only ({results.filter(r => r.valid).length})</option>
-            <option value="invalid">Invalid Only ({results.filter(r => !r.valid).length})</option>
+            <option value="all">All Results ({safeResults.length})</option>
+            <option value="valid">Valid Only ({safeResults.filter(r => r.valid).length})</option>
+            <option value="invalid">Invalid Only ({safeResults.filter(r => !r.valid).length})</option>
           </select>
           
           <select 

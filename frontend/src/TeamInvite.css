@@ -1,248 +1,206 @@
+/* ============================================================================ */
+/* TEAM INVITE - MODERN DESIGN */
+/* ============================================================================ */
+
 .team-invite-container {
-    min-height: 100vh;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .invite-card {
-    background: white;
-    border-radius: 16px;
-    padding: 40px;
-    max-width: 500px;
-    width: 100%;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-    text-align: center;
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-2xl);
+  max-width: 500px;
+  width: 100%;
+  box-shadow: var(--shadow-xl);
+  text-align: center;
+  animation: slideUpModal 0.4s ease-out;
+  border: 1px solid var(--border-light);
 }
 
 .invite-card.error-card {
-    border: 2px solid #e74c3c;
+  border: 1.5px solid var(--danger);
+}
+
+.invite-card.success-card {
+  border: 1.5px solid var(--success);
 }
 
 .invite-header {
-    margin-bottom: 30px;
+  margin-bottom: var(--spacing-2xl);
 }
 
 .team-icon {
-    font-size: 48px;
-    margin-bottom: 15px;
+  font-size: 3rem;
+  margin-bottom: var(--spacing-lg);
+  display: inline-block;
 }
 
 .invite-header h1 {
-    color: #2c3e50;
-    margin: 0;
-    font-size: 28px;
-    font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.invite-header p {
+  color: var(--text-secondary);
+  margin: var(--spacing-sm) 0 0 0;
+  font-size: 0.95rem;
 }
 
 .invite-details {
-    margin-bottom: 30px;
-    text-align: left;
+  margin-bottom: var(--spacing-2xl);
+  text-align: left;
+  background: var(--bg-secondary);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
 }
 
 .invite-details h2 {
-    color: #2c3e50;
-    margin-bottom: 10px;
-    text-align: center;
-    font-size: 20px;
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-md) 0;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
-.team-name {
-    font-size: 24px;
-    font-weight: 700;
-    color: #3498db;
-    text-align: center;
-    margin-bottom: 15px;
-    padding: 15px;
-    background: #f8f9fa;
-    border-radius: 8px;
-    border-left: 4px solid #3498db;
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-md) 0;
+  border-bottom: 1px solid var(--border-light);
+  align-items: center;
 }
 
-.team-description {
-    color: #666;
-    font-style: italic;
-    text-align: center;
-    margin-bottom: 20px;
+.detail-row:last-child {
+  border-bottom: none;
 }
 
-.inviter-info {
-    background: #f8f9fa;
-    padding: 15px;
-    border-radius: 8px;
-    margin-bottom: 20px;
+.detail-label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.inviter-info p {
-    margin: 0;
-    color: #2c3e50;
-}
-
-.inviter-email {
-    color: #666;
-    font-size: 14px;
-}
-
-.personal-message {
-    background: #e8f4fd;
-    padding: 15px;
-    border-radius: 8px;
-    border-left: 4px solid #3498db;
-}
-
-.personal-message h4 {
-    margin: 0 0 10px 0;
-    color: #2c3e50;
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.personal-message p {
-    margin: 0;
-    color: #2c3e50;
-    font-style: italic;
-}
-
-.team-benefits {
-    background: #f0f9ff;
-    padding: 20px;
-    border-radius: 12px;
-    margin-bottom: 30px;
-    border: 1px solid #e0f2fe;
-}
-
-.team-benefits h3 {
-    color: #2c3e50;
-    margin: 0 0 15px 0;
-    font-size: 18px;
-}
-
-.team-benefits ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    text-align: left;
-}
-
-.team-benefits li {
-    padding: 8px 0;
-    color: #27ae60;
-    font-weight: 500;
+.detail-value {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 0.95rem;
+  word-break: break-all;
 }
 
 .invite-actions {
-    margin-bottom: 20px;
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  flex-direction: column;
 }
 
-.btn-primary,
-.btn-secondary {
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-    margin: 0 8px;
-    transition: all 0.2s ease;
-    min-width: 120px;
+.invite-btn {
+  padding: 11px 20px;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: var(--transition-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
 }
 
-.btn-primary {
-    background: #3498db;
-    color: white;
+.invite-btn.accept {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  box-shadow: var(--shadow-md);
 }
 
-.btn-primary:hover:not(:disabled) {
-    background: #2980b9;
-    transform: translateY(-1px);
+.invite-btn.accept:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
 }
 
-.btn-primary:disabled {
-    background: #bdc3c7;
-    cursor: not-allowed;
+.invite-btn.decline {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-light);
+  color: var(--text-primary);
 }
 
-.btn-secondary {
-    background: #ecf0f1;
-    color: #2c3e50;
-    border: 1px solid #bdc3c7;
+.invite-btn.decline:hover {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
-.btn-secondary:hover {
-    background: #d5dbdb;
+.invite-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
-.accept-btn {
-    background: #27ae60;
+.invite-message {
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  margin-top: var(--spacing-lg);
+  font-weight: 500;
+  border-left: 4px solid;
+  animation: slideInFade 0.3s ease-out;
 }
 
-.accept-btn:hover:not(:disabled) {
-    background: #229954;
+.invite-message.success {
+  background: var(--success-bg);
+  color: var(--success-dark);
+  border-left-color: var(--success);
 }
 
-.login-prompt {
-    color: #666;
-    margin-bottom: 20px;
-    font-size: 14px;
+.invite-message.error {
+  background: var(--danger-bg);
+  color: var(--danger-dark);
+  border-left-color: var(--danger);
 }
 
-.invite-footer {
-    border-top: 1px solid #eee;
-    padding-top: 20px;
+.invite-message.info {
+  background: var(--info-bg);
+  color: var(--info-dark);
+  border-left-color: var(--info);
 }
 
-.expires-info {
-    color: #999;
-    font-size: 12px;
-    margin: 0;
+.loading-animation {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--primary);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-.loading {
-    padding: 40px;
-    color: #666;
-    font-size: 18px;
-}
-
-.error-icon {
-    font-size: 48px;
-    margin-bottom: 15px;
-}
-
-.error-card h2 {
-    color: #e74c3c;
-    margin-bottom: 15px;
-}
-
-.error-card p {
-    color: #666;
-    margin-bottom: 20px;
-}
-
-/* Responsive Design */
 @media (max-width: 600px) {
-    .team-invite-container {
-        padding: 15px;
-    }
-    
-    .invite-card {
-        padding: 30px 20px;
-    }
-    
-    .team-name {
-        font-size: 20px;
-    }
-    
-    .invite-header h1 {
-        font-size: 24px;
-    }
-    
-    .btn-primary,
-    .btn-secondary {
-        display: block;
-        width: 100%;
-        margin: 8px 0;
-    }
+  .invite-card {
+    padding: var(--spacing-xl);
+  }
+
+  .invite-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .invite-actions {
+    flex-direction: column;
+  }
+
+  .invite-btn {
+    width: 100%;
+  }
 }

@@ -630,13 +630,31 @@ const TeamManagement = () => {
                                     <div className="quota-info">
                                         <h4>Team Quota Usage</h4>
                                         <div className="quota-bar">
-                                            <div className="quota-fill" style={{
-                                                width: `${Math.min((((teamQuickInfo?.team?.monthly_validations_used || teamInfo?.team?.quota_used) || 0) / ((teamQuickInfo?.team?.monthly_validations || teamInfo?.team?.quota_limit) || 10000000)) * 100, 100)}%`
-                                            }} />
+                                            {(() => {
+                                                const used = (teamQuickInfo?.team?.monthly_validations_used ?? teamInfo?.team?.quota_used ?? 0);
+                                                const limit = (teamQuickInfo?.team?.monthly_validations ?? teamInfo?.team?.quota_limit ?? 10000000);
+                                                const percentUsed = limit > 0 ? (used / limit) * 100 : 0;
+                                                const visualWidth = percentUsed > 0 && percentUsed < 1 ? 1 : Math.min(percentUsed, 100);
+                                                return (
+                                                    <div className="quota-fill" style={{ width: `${visualWidth}%` }} />
+                                                );
+                                            })()}
                                         </div>
                                         <div className="quota-details">
-                                            <span>{((teamQuickInfo?.team?.monthly_validations_used || teamInfo?.team?.quota_used) || 0).toLocaleString()} / {((teamQuickInfo?.team?.monthly_validations || teamInfo?.team?.quota_limit) || 10000000).toLocaleString()}</span>
-                                            <span>{Math.round((((teamQuickInfo?.team?.monthly_validations_used || teamInfo?.team?.quota_used) || 0) / ((teamQuickInfo?.team?.monthly_validations || teamInfo?.team?.quota_limit) || 10000000)) * 100)}% used</span>
+                                            {(() => {
+                                                const used = (teamQuickInfo?.team?.monthly_validations_used ?? teamInfo?.team?.quota_used ?? 0);
+                                                const limit = (teamQuickInfo?.team?.monthly_validations ?? teamInfo?.team?.quota_limit ?? 10000000);
+                                                const percentUsed = limit > 0 ? (used / limit) * 100 : 0;
+                                                const percentLabel = percentUsed > 0 && percentUsed < 1
+                                                    ? `${percentUsed.toFixed(2)}% used`
+                                                    : `${Math.round(percentUsed)}% used`;
+                                                return (
+                                                    <>
+                                                        <span>{used.toLocaleString()} / {limit.toLocaleString()}</span>
+                                                        <span>{percentLabel}</span>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                         <p className="quota-reset">Lifetime quota (no reset)</p>
                                     </div>

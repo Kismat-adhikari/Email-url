@@ -6,6 +6,8 @@ echo.
 echo Installing dependencies...
 call npm install
 echo.
-echo Starting development server on http://localhost:3000
+echo Setting frontend port to 3002
+set PORT=3002
+echo Starting development server on http://localhost:3002
 echo.
 call npm start

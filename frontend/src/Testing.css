@@ -7,29 +7,30 @@
 }
 
 .testing-container {
-  background: white;
+  background: var(--bg-primary);
   padding: 60px 80px;
   border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-xl);
   text-align: center;
 }
 
 .testing-container h1 {
   font-size: 3rem;
   margin-bottom: 20px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .testing-container p {
   font-size: 1.2rem;
-  color: #666;
+  color: var(--text-secondary);
   margin-bottom: 30px;
 }
 
 .back-btn {
   padding: 12px 30px;
   font-size: 1rem;
-  background: #667eea;
+  background: var(--primary);
   color: white;
   border: none;
   border-radius: 8px;
@@ -38,19 +39,9 @@
 }
 
 .back-btn:hover {
-  background: #5568d3;
+  background: var(--primary-dark);
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
 }
 
-body.dark-mode .testing-container {
-  background: #2d3748;
-}
-
-body.dark-mode .testing-container h1 {
-  color: #f7fafc;
-}
-
-body.dark-mode .testing-container p {
-  color: #cbd5e0;
-}
+/* Single theme: dark defaults via variables */

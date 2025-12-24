@@ -1,4 +1,129 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap');
+
+/* ============================================================================ */
+/* PREMIUM MODERN DESIGN SYSTEM */
+/* ============================================================================ */
+:root {
+  /* PRIMARY - Deep Indigo with Elegant Accents */
+  --primary: #4f46e5;
+  --primary-dark: #3730a3;
+  --primary-light: #6366f1;
+  --primary-bg: #eef2ff;
+  --primary-50: #f0f4ff;
+  
+  /* SECONDARY - Modern Purple */
+  --secondary: #7c3aed;
+  --secondary-dark: #6d28d9;
+  --secondary-light: #a78bfa;
+  --secondary-bg: #faf5ff;
+  
+  /* STATUS COLORS - Professional & Clear */
+  --success: #059669;
+  --success-dark: #047857;
+  --success-light: #10b981;
+  --success-bg: #ecfdf5;
+  
+  --warning: #d97706;
+  --warning-dark: #b45309;
+  --warning-light: #f59e0b;
+  --warning-bg: #fffbeb;
+  
+  --danger: #dc2626;
+  --danger-dark: #991b1b;
+  --danger-light: #ef4444;
+  --danger-bg: #fef2f2;
+  
+  --info: #2563eb;
+  --info-dark: #1d4ed8;
+  --info-light: #3b82f6;
+  --info-bg: #eff6ff;
+  
+  /* NEUTRAL SCALE - Clean & Professional */
+  --neutral-950: #030712;
+  --neutral-900: #111827;
+  --neutral-800: #1f2937;
+  --neutral-700: #374151;
+  --neutral-600: #4b5563;
+  --neutral-500: #6b7280;
+  --neutral-400: #9ca3af;
+  --neutral-300: #d1d5db;
+  --neutral-200: #e5e7eb;
+  --neutral-100: #f3f4f6;
+  --neutral-50: #f9fafb;
+
+  /* Legacy gray scale aliases (keep AppPro colors working) */
+  --gray-50: var(--neutral-50);
+  --gray-100: var(--neutral-100);
+  --gray-200: var(--neutral-200);
+  --gray-300: var(--neutral-300);
+  --gray-400: var(--neutral-400);
+  --gray-500: var(--neutral-500);
+  --gray-600: var(--neutral-600);
+  --gray-700: var(--neutral-700);
+  --gray-800: var(--neutral-800);
+  --gray-900: var(--neutral-900);
+  --gray-950: var(--neutral-950);
+  
+  /* BACKGROUNDS (Single Theme: Dark as default) */
+  --bg-primary: rgba(15, 15, 35, 0.20);
+  --bg-secondary: #0b1020;
+  --bg-tertiary: #111827;
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  
+  /* TEXT */
+  --text-primary: #e5e7eb;  /* slate-200 */
+  --text-secondary: #94a3b8; /* slate-400 */
+  --text-tertiary: #64748b;  /* slate-500 */
+  --text-inverse: #0b1020;
+  
+  /* BORDERS */
+  --border-light: rgba(255, 255, 255, 0.12);
+  --border-medium: rgba(255, 255, 255, 0.18);
+  --border-dark: rgba(255, 255, 255, 0.25);
+  
+  /* SHADOWS - Tuned for dark theme */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.55);
+  
+  /* BORDER RADIUS */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius: var(--radius-lg);
+  --radius-full: 9999px;
+  
+  /* TRANSITIONS */
+  --transition-fast: 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* SPACING */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+  
+  /* GRADIENTS */
+  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  --gradient-warm: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%);
+  --gradient-cool: linear-gradient(135deg, #2563eb 0%, #059669 100%);
+
+  /* GLASS / BACKDROP (used in dark mode and premium UI) */
+  --backdrop-blur-sm: blur(4px);
+  --backdrop-blur: blur(8px);
+  --backdrop-blur-xl: blur(16px);
+  --glass-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  --glass-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.35);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
 
 * {
   margin: 0;
@@ -6,14 +131,98 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
-  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #f5f7fa;
   min-height: 100vh;
 }
 
-code {
-  font-family: 'Roboto Mono', monospace;
+/* Single Theme: Dark defaults are set in :root above. */
+
+/* TYPOGRAPHY HIERARCHY */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+h1 { font-size: 2.25rem; font-weight: 800; }
+h2 { font-size: 1.875rem; font-weight: 700; }
+h3 { font-size: 1.5rem; font-weight: 700; }
+h4 { font-size: 1.25rem; font-weight: 600; }
+h5 { font-size: 1.125rem; font-weight: 600; }
+h6 { font-size: 1rem; font-weight: 600; }
+
+p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-bottom: var(--spacing-md);
+}
+
+/* CODE & MONOSPACE */
+code, pre {
+  font-family: 'Roboto Mono', 'Monaco', monospace;
+  font-size: 0.9em;
+  background: var(--bg-tertiary);
+  padding: 0.2em 0.4em;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+pre {
+  padding: var(--spacing-md);
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+}
+
+/* LINKS */
+a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: var(--transition-fast);
+}
+
+a:hover {
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
+
+/* SELECTION */
+::selection {
+  background: var(--primary-bg);
+  color: var(--primary-dark);
+}
+
+/* SCROLLBAR */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--neutral-300);
+  border-radius: 4px;
+  border: 2px solid var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neutral-400);
 }

@@ -11,7 +11,7 @@ timeout /t 3 /nobreak >nul
 
 echo [2/2] Starting Frontend Server (React)...
 echo.
-start "Email Validator Frontend" cmd /k "cd frontend && npm start"
+start "Email Validator Frontend" cmd /k "cd frontend && set PORT=3002 && npm start"
 
 echo.
 echo ================================================================================
@@ -19,7 +19,7 @@ echo APPLICATION STARTED!
 echo ================================================================================
 echo.
 echo Backend:  http://localhost:5000
-echo Frontend: http://localhost:3000
+echo Frontend: http://localhost:3002
 echo.
 echo Two terminal windows have been opened.
 echo Keep them running while using the application.

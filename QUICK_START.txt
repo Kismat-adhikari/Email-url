@@ -1,0 +1,118 @@
+============================================================================
+QUICK START COMMANDS - EMAIL VALIDATOR PROJECT
+============================================================================
+
+## ONE-COMMAND START (Windows)
+Double-click: start_app.bat
+
+---
+
+## MANUAL START (Both Frontend & Backend)
+
+### Terminal 1 - BACKEND
+cd c:\Users\kisma\Desktop\Email-url
+python app_anon_history.py
+
+Expected: "Running on http://127.0.0.1:5000"
+
+---
+
+### Terminal 2 - FRONTEND
+cd c:\Users\kisma\Desktop\Email-url\frontend
+npm start
+
+Expected: "Compiled successfully! Local: http://localhost:3002"
+
+Note: Frontend is configured for port 3002. If 3002 is busy, Create React App will prompt to use the next free port (e.g., 3003). You can free 3002 with the steps below.
+
+---
+
+## Then Open Browser
+http://localhost:3002
+
+If you accepted a different port during startup, open that port instead (e.g., http://localhost:3002).
+
+============================================================================
+TROUBLESHOOTING QUICK FIXES
+============================================================================
+
+❌ CSS looks broken?
+→ Clear cache: Ctrl+Shift+Delete
+→ Hard refresh: Ctrl+Shift+R
+→ Restart: npm start
+
+❌ Port already in use (5000)?
+→ taskkill /PID <PID> /F
+
+❌ Port already in use (3002)?
+→ taskkill /PID <PID> /F
+
+Find the PID for port 3002:
+→ netstat -ano | findstr :3002
+
+Then kill the PID shown (replace <PID>):
+→ taskkill /PID <PID> /F
+
+❌ npm install stuck?
+→ npm cache clean --force
+→ npm install
+
+❌ Cards look weird in Batch tab?
+→ See: BATCH_CARDS_CSS_FIX.md
+
+============================================================================
+SETUP FIRST TIME ONLY
+============================================================================
+
+### Install Python Dependencies
+pip install -r requirements.txt
+
+### Install Node Dependencies
+cd frontend && npm install
+
+============================================================================
+USEFUL COMMANDS
+============================================================================
+
+Check backend health:
+curl http://localhost:5000/api/health
+
+Test email validation:
+curl -X POST http://localhost:5000/api/validate \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com"}'
+
+Check port usage:
+netstat -ano | findstr :5000
+
+View logs:
+tail -f app.log
+
+============================================================================
+FILE LOCATIONS
+============================================================================
+
+Backend: c:\Users\kisma\Desktop\Email-url\app.py
+Frontend: c:\Users\kisma\Desktop\Email-url\frontend
+Config: c:\Users\kisma\Desktop\Email-url\.env
+CSS System: c:\Users\kisma\Desktop\Email-url\frontend\src\index.css
+
+============================================================================
+DOCUMENTATION
+============================================================================
+
+How to Run: RUN_PROJECT.txt
+CSS Issues: BATCH_CARDS_CSS_FIX.md
+Design System: DESIGN_SYSTEM_QUICK_REFERENCE.md
+Full Guide: IMPLEMENTATION_GUIDE.md
+
+============================================================================
+KEY INFO
+============================================================================
+
+Backend: http://localhost:5000
+Frontend: http://localhost:3002
+Database: Check .env file
+API Docs: See backend/templates
+
+============================================================================

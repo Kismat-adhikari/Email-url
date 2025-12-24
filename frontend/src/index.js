@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './index.css';
 import './ErrorBoundary.css';
+import './BatchValidation.css';
 import App from './App';
 import Testing from './Testing';
 import Login from './Login';

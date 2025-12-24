@@ -1,26 +1,29 @@
-/* Profile Page Styles - Using main app styling */
+/* ============================================================================ */
+/* PROFILE PAGE - MODERN DESIGN */
+/* ============================================================================ */
 
-/* Import main app styles for consistency */
-@import './AppPro.css';
-
-/* Profile-specific overrides and additions */
-.profile-header {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 2px solid var(--gray-200);
+.profile-container {
+  max-width: 1000px;
+  margin: var(--spacing-2xl) auto;
+  padding: 0 var(--spacing-xl);
 }
 
-body.dark-mode .profile-header {
-  border-bottom-color: #475569;
+.profile-header {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-2xl);
+  margin-bottom: var(--spacing-2xl);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
 }
 
 .profile-avatar {
   width: 80px;
   height: 80px;
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -28,6 +31,8 @@ body.dark-mode .profile-header {
   color: white;
   flex-shrink: 0;
   box-shadow: var(--shadow-lg);
+  font-weight: 700;
+  font-size: 1.8rem;
 }
 
 .profile-title {
@@ -35,19 +40,16 @@ body.dark-mode .profile-header {
 }
 
 .profile-title h1 {
-  margin: 0 0 5px 0;
-  font-size: 2rem;
-  font-weight: 700;
-  color: var(--gray-900);
-}
-
-body.dark-mode .profile-title h1 {
-  color: #f1f5f9;
+  margin: 0 0 8px 0;
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 
 .profile-title p {
   margin: 0;
-  color: var(--gray-500);
+  color: var(--text-secondary);
   font-size: 1rem;
 }
 
@@ -100,25 +102,15 @@ body.dark-mode .profile-title p {
 }
 
 .profile-message.success {
-  background: var(--success-light);
-  color: #065f46;
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
   border-color: var(--success);
 }
 
 .profile-message.error {
-  background: var(--danger-light);
-  color: #991b1b;
-  border-color: var(--danger);
-}
-
-body.dark-mode .profile-message.success {
-  background: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
-}
-
-body.dark-mode .profile-message.error {
   background: rgba(239, 68, 68, 0.2);
   color: #fca5a5;
+  border-color: var(--danger);
 }
 
 .profile-content {
@@ -128,25 +120,16 @@ body.dark-mode .profile-message.error {
 }
 
 .profile-section {
-  background: var(--gray-50);
+  background: var(--bg-secondary);
   border-radius: var(--radius-lg);
   padding: 32px;
-  border: 2px solid var(--gray-200);
+  border: 1px solid var(--border-light);
   transition: var(--transition);
 }
 
 .profile-section:hover {
-  border-color: var(--gray-300);
+  border-color: var(--border-medium);
   box-shadow: var(--shadow-sm);
-}
-
-body.dark-mode .profile-section {
-  background: #0f172a;
-  border-color: #334155;
-}
-
-body.dark-mode .profile-section:hover {
-  border-color: #475569;
 }
 
 .profile-section h3 {
@@ -156,11 +139,7 @@ body.dark-mode .profile-section:hover {
   margin: 0 0 24px 0;
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--gray-800);
-}
-
-body.dark-mode .profile-section h3 {
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .profile-grid {
@@ -184,59 +163,38 @@ body.dark-mode .profile-section h3 {
   align-items: center;
   gap: 8px;
   font-weight: 700;
-  color: var(--gray-700);
+  color: var(--text-secondary);
   font-size: 0.95rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-body.dark-mode .profile-field label {
-  color: #cbd5e1;
-}
-
 .profile-value {
   padding: 16px 20px;
-  background: white;
-  border: 2px solid var(--gray-200);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius);
-  color: var(--gray-800);
+  color: var(--text-primary);
   font-weight: 600;
   font-size: 1rem;
   transition: var(--transition);
-}
-
-body.dark-mode .profile-value {
-  background: #1e293b;
-  border-color: #475569;
-  color: #f1f5f9;
 }
 
 .profile-input {
   padding: 16px 20px;
-  border: 2px solid var(--gray-300);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius);
   font-size: 1rem;
   font-weight: 600;
   transition: var(--transition);
-  background: white;
-  color: var(--gray-900);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .profile-input:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-body.dark-mode .profile-input {
-  background: #0f172a;
-  border-color: #334155;
-  color: #f1f5f9;
-}
-
-body.dark-mode .profile-input:focus {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
 }
 
 .tier-badge {
@@ -298,25 +256,17 @@ body.dark-mode .tier-badge.tier-enterprise {
 
 .usage-numbers {
   font-weight: 800;
-  color: var(--gray-800);
+  color: var(--text-primary);
   font-size: 1.1rem;
-}
-
-body.dark-mode .usage-numbers {
-  color: #f1f5f9;
 }
 
 .usage-bar {
   width: 100%;
   height: 12px;
-  background: var(--gray-200);
+  background: var(--bg-tertiary);
   border-radius: 6px;
   overflow: hidden;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-body.dark-mode .usage-bar {
-  background: #334155;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .usage-fill {
@@ -345,12 +295,8 @@ body.dark-mode .usage-bar {
 
 .usage-percentage {
   font-size: 0.9rem;
-  color: var(--gray-600);
+  color: var(--text-secondary);
   font-weight: 600;
-}
-
-body.dark-mode .usage-percentage {
-  color: #94a3b8;
 }
 
 .api-key-field {
@@ -365,13 +311,8 @@ body.dark-mode .usage-percentage {
 .api-key-display {
   font-family: 'Courier New', monospace;
   letter-spacing: 1px;
-  background: var(--gray-100);
-  color: var(--gray-600);
-}
-
-body.dark-mode .api-key-display {
-  background: #334155;
-  color: #94a3b8;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .field-help {
@@ -385,8 +326,8 @@ body.dark-mode .api-key-display {
   line-height: 1.5;
 }
 
-body.dark-mode .field-help p {
-  color: #94a3b8;
+.field-help p {
+  color: var(--text-secondary);
 }
 
 .field-help a {
@@ -399,19 +340,13 @@ body.dark-mode .field-help p {
   text-decoration: underline;
 }
 
-body.dark-mode .field-help a {
-  color: #60a5fa;
-}
+/* Single theme uses --primary by default */
 
 .profile-actions {
   display: flex;
   justify-content: flex-end;
   padding-top: 24px;
-  border-top: 2px solid var(--gray-200);
-}
-
-body.dark-mode .profile-actions {
-  border-top-color: #475569;
+  border-top: 1px solid var(--border-light);
 }
 
 .save-btn {
@@ -445,15 +380,10 @@ body.dark-mode .profile-actions {
 .profile-error {
   text-align: center;
   padding: 80px 40px;
-  background: white;
+  background: var(--bg-primary);
   border-radius: var(--radius-lg);
-  border: 2px solid var(--gray-200);
+  border: 1px solid var(--border-light);
   box-shadow: var(--shadow-sm);
-}
-
-body.dark-mode .profile-error {
-  background: #1e293b;
-  border-color: #334155;
 }
 
 .profile-error h2 {
@@ -464,13 +394,9 @@ body.dark-mode .profile-error {
 }
 
 .profile-error p {
-  color: var(--gray-600);
+  color: var(--text-secondary);
   margin-bottom: 32px;
   font-size: 1.1rem;
-}
-
-body.dark-mode .profile-error p {
-  color: #94a3b8;
 }
 
 /* Responsive design */
@@ -596,17 +522,7 @@ body.dark-mode .profile-error p {
 }
 
 /* Dark mode styles for API counter */
-body.dark-mode .api-usage-counter.limit-warning {
-  background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.4);
-}
-
-body.dark-mode .api-usage-counter.limit-reached {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.4);
-}
+/* Single theme: keep base styles for API usage counters */
 
 /* Email Configuration Section */
 .email-config-section {

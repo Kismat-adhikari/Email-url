@@ -4,6 +4,8 @@ import axios from 'axios';
 import './App.css';
 import './AppModern.css';
 import './AppPro.css';
+import './BatchValidation.css';
+import './HistoryPaginated.css';
 import { 
   FiMail, FiRefreshCw, 
   FiTrash2, FiDownload, FiCopy, FiCheckCircle, FiXCircle,
@@ -156,7 +158,8 @@ function App() {
   const [historyMode, setHistoryMode] = useState(false);
 
   const [batchEmails, setBatchEmails] = useState('');
-  const [batchResults, setBatchResults] = useState(null);
+  // Initialize with empty object to prevent unmounting and CSS loss
+  const [batchResults, setBatchResults] = useState({ results: [], total: 0, valid_count: 0, invalid_count: 0, processing_time: 0 });
   const [uploadMode, setUploadMode] = useState('text');
   const [selectedFile, setSelectedFile] = useState(null);
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
@@ -1888,7 +1891,8 @@ function App() {
                 setBatchMode(false);
                 setHistoryMode(false);
                 setResult(null);
-                setBatchResults(null);
+                // Keep empty results instead of null to prevent component unmounting
+                setBatchResults({ results: [], total: 0, valid_count: 0, invalid_count: 0, processing_time: 0 });
                 setError(null);
               }}
             >
@@ -1923,7 +1927,8 @@ function App() {
                           setBatchMode(true);
                           setHistoryMode(false);
                           setResult(null);
-                          setBatchResults(null);
+                          // Keep empty results instead of null
+                          setBatchResults({ results: [], total: 0, valid_count: 0, invalid_count: 0, processing_time: 0 });
                           setError(null);
                           return;
                         }
@@ -1943,7 +1948,8 @@ function App() {
                 setBatchMode(true);
                 setHistoryMode(false);
                 setResult(null);
-                setBatchResults(null);
+                // Keep empty results instead of null to preserve component mounting
+                setBatchResults({ results: [], total: 0, valid_count: 0, invalid_count: 0, processing_time: 0 });
                 setError(null);
               }}
               disabled={!adminMode && (!user || (user && user.subscriptionTier === 'free'))}
@@ -2834,7 +2840,7 @@ function App() {
           </div>
         )}
 
-        {batchResults && (
+        {batchResults && batchResults.results && batchResults.results.length > 0 && (
           <div className="batch-results">
             <div className="batch-summary">
               <div className="batch-header">
@@ -3099,9 +3105,10 @@ function App() {
               </div>
             )}
 
-            {showBatchResults && (
+            {/* Always render but control visibility with CSS to preserve component mounting */}
+            <div style={{ display: showBatchResults ? 'block' : 'none' }}>
               <BatchResultsPaginated
-                results={batchResults.results}
+                results={batchResults?.results || []}
                 mode={mode}
                 itemsPerPage={30}
                 getConfidenceColor={getConfidenceColor}
@@ -3109,7 +3116,7 @@ function App() {
                 getConfidenceLabel={getConfidenceLabel}
                 isStreaming={loading}
               />
-            )}
+            </div>
           </div>
         )}
 
