@@ -163,6 +163,8 @@ function App() {
   const [uploadMode, setUploadMode] = useState('text');
   const [selectedFile, setSelectedFile] = useState(null);
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
+  const [enableSmtpSingle, setEnableSmtpSingle] = useState(false);
+  const [enableSmtpBatch, setEnableSmtpBatch] = useState(false);
   const [showDomainStats, setShowDomainStats] = useState(true);
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0, eta: 0, speed: 0 });
   const [shareLink, setShareLink] = useState(null);
@@ -728,6 +730,7 @@ function App() {
           'Email', 'Valid', 'Confidence Score', 'Deliverability Score', 'Deliverability Grade',
           'Status', 'Risk Level', 'Domain', 'Provider Type', 
           'Is Disposable', 'Is Role Based', 'Has MX Records', 'DNS Valid',
+          'SMTP Verified', 'Catch-all', 'SMTP Code', 'SMTP Message',
           'Bounce Count', 'Reason', 'Suggestion'
         ]
       : ['Email', 'Valid', 'Domain', 'Reason'];
@@ -750,6 +753,10 @@ function App() {
           r.checks?.is_role_based ? 'Yes' : 'No',
           r.checks?.mx_records ? 'Yes' : 'No',
           r.checks?.dns_valid ? 'Yes' : 'No',
+          r.checks?.smtp_verified ? 'Yes' : 'No',
+          r.checks?.is_catch_all ? 'Yes' : 'No',
+          r.smtp_details?.smtp_code || 'N/A',
+          r.smtp_details?.smtp_message || r.smtp_details?.error || 'N/A',
           r.bounce_info?.bounce_count || 0,
           r.reason || '',
           r.suggestion || ''
@@ -941,7 +948,8 @@ function App() {
       
       const response = await api.post(endpoint, { 
         email,
-        advanced: mode === 'advanced'
+        advanced: mode === 'advanced',
+        enable_smtp: mode === 'advanced' ? enableSmtpSingle : false
       });
       
       setResult(response.data);
@@ -1204,7 +1212,8 @@ function App() {
           body: JSON.stringify({
             emails,
             advanced: mode === 'advanced',
-            remove_duplicates: removeDuplicates
+            remove_duplicates: removeDuplicates,
+            enable_smtp: mode === 'advanced' ? enableSmtpBatch : false
           }),
           signal: controller.signal
         });
@@ -2196,6 +2205,25 @@ function App() {
                   {(!adminMode && user && user.apiCallsCount >= getCorrectApiLimit(user.subscriptionTier)) || (!adminMode && !user && anonValidationCount >= ANON_VALIDATION_LIMIT) ? 'Limit Reached' : loading ? 'Validating...' : adminMode ? 'Validate Email (Admin)' : 'Validate Email'}
                 </button>
               </div>
+
+              {/* SMTP toggle for single validation */}
+              <div className="pro-toggle-row">
+                <label className={`pro-checkbox ${mode !== 'advanced' ? 'disabled' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={enableSmtpSingle}
+                    onChange={(e) => setEnableSmtpSingle(e.target.checked)}
+                    disabled={mode !== 'advanced' || loading}
+                  />
+                  <span>🚀 Ultra-Fast SMTP Verification</span>
+                  <div className={`smtp-status-indicator ${enableSmtpSingle && mode === 'advanced' ? 'enabled' : 'disabled'}`}>
+                    {enableSmtpSingle && mode === 'advanced' ? 'ENABLED' : 'DISABLED'}
+                  </div>
+                </label>
+                <span className="pro-hint-text">
+                  ⚡ Optimized for speed (3-6s) • Detects catch-all domains • Advanced mode only
+                </span>
+              </div>
             </div>
             
             {/* Loading State */}
@@ -2313,6 +2341,21 @@ function App() {
                 />
                 <span>🔄 Automatically remove duplicate emails</span>
               </label>
+              <div className="smtp-toggle-batch">
+                <label className={`pro-checkbox ${mode !== 'advanced' ? 'disabled' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={enableSmtpBatch}
+                    onChange={(e) => setEnableSmtpBatch(e.target.checked)}
+                    disabled={mode !== 'advanced' || loading}
+                  />
+                  <span>🚀 Ultra-Fast Batch SMTP Verification</span>
+                  <div className={`smtp-status-indicator ${enableSmtpBatch && mode === 'advanced' ? 'enabled' : 'disabled'}`}>
+                    {enableSmtpBatch && mode === 'advanced' ? 'ENABLED' : 'DISABLED'}
+                  </div>
+                </label>
+                <span className="pro-hint-text">⚡ Parallel processing • 10x faster than traditional SMTP • Advanced mode only</span>
+              </div>
               {batchEmails && (() => {
                 const emails = parseEmails(batchEmails);
                 const dupInfo = detectDuplicates(emails);
@@ -2782,6 +2825,18 @@ function App() {
                     <span className="pro-check-icon">{!result.checks.is_role_based ? '✓' : '⚠'}</span>
                     <span>{result.checks.is_role_based ? 'Role-Based Email' : 'Personal Email'}</span>
                   </div>
+                  {result.smtp_details && (
+                    <div className={`pro-check-item ${result.smtp_details.smtp_valid ? 'pass' : 'warn'}`}>
+                      <span className="pro-check-icon">{result.smtp_details.smtp_valid ? '✓' : '⚠'}</span>
+                      <span>{result.smtp_details.smtp_valid ? 'Mailbox accepts mail (SMTP)' : 'SMTP check blocked/failed'}</span>
+                    </div>
+                  )}
+                  {result.smtp_details && (
+                    <div className={`pro-check-item ${result.smtp_details.is_catch_all ? 'warn' : 'pass'}`}>
+                      <span className="pro-check-icon">{result.smtp_details.is_catch_all ? '⚠' : '✓'}</span>
+                      <span>{result.smtp_details.is_catch_all ? 'Catch-all domain' : 'Not catch-all (SMTP)'}</span>
+                    </div>
+                  )}
                   {result.bounce_info && (
                     <div className={`pro-check-item ${
                       result.bounce_info?.has_bounced ? 'warn' : 'pass'
@@ -2805,6 +2860,23 @@ function App() {
                     {result.checks.is_disposable && 'This is a disposable/temporary email address. '}
                     {result.checks.is_role_based && 'This is a role-based email (e.g., info@, support@). '}
                     Not recommended for important communications.
+                  </div>
+                )}
+
+                {result.smtp_details && (
+                  <div className="pro-info-box">
+                    <strong>SMTP verification:</strong>{' '}
+                    {result.smtp_details.smtp_valid ? 'Mailbox accepted RCPT TO.' : 'Server did not confirm the mailbox.'}
+                    {result.smtp_details.is_catch_all && ' Domain appears to be catch-all (accepts all recipients).'}
+                    <div className="pro-meta-info" style={{marginTop: '6px'}}>
+                      {result.smtp_details.smtp_code && `Code: ${result.smtp_details.smtp_code} • `}
+                      {result.smtp_details.mx_server && `MX: ${result.smtp_details.mx_server} • `}
+                      {result.smtp_details.smtp_message && `Message: ${result.smtp_details.smtp_message}`}
+                      {result.smtp_details.error && ` Error: ${result.smtp_details.error}`}
+                    </div>
+                    <div className="pro-hint-text" style={{marginTop: '4px'}}>
+                      SMTP probes can be slow or blocked; a failed check is often due to blocking rather than a definitive invalid mailbox.
+                    </div>
                   </div>
                 )}
 

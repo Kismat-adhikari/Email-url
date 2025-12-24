@@ -1,57 +1,57 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap');
 
 /* ============================================================================ */
-/* PREMIUM MODERN DESIGN SYSTEM */
+/* APPLE-STYLE MINIMALIST DESIGN SYSTEM - LIGHT MODE */
 /* ============================================================================ */
 :root {
-  /* PRIMARY - Deep Indigo with Elegant Accents */
-  --primary: #4f46e5;
-  --primary-dark: #3730a3;
-  --primary-light: #6366f1;
-  --primary-bg: #eef2ff;
-  --primary-50: #f0f4ff;
+  /* PRIMARY - Vibrant Modern Blue */
+  --primary: #007AFF;
+  --primary-dark: #0051D5;
+  --primary-light: #3B9FFF;
+  --primary-bg: #E8F4FF;
+  --primary-50: #F0F9FF;
   
-  /* SECONDARY - Modern Purple */
-  --secondary: #7c3aed;
-  --secondary-dark: #6d28d9;
-  --secondary-light: #a78bfa;
-  --secondary-bg: #faf5ff;
+  /* SECONDARY - Apple Purple */
+  --secondary: #AF52DE;
+  --secondary-dark: #9333EA;
+  --secondary-light: #D8B4FE;
+  --secondary-bg: #FAF5FF;
   
-  /* STATUS COLORS - Professional & Clear */
-  --success: #059669;
-  --success-dark: #047857;
-  --success-light: #10b981;
-  --success-bg: #ecfdf5;
+  /* STATUS COLORS - Professional & Vibrant */
+  --success: #34C759;
+  --success-dark: #06B854;
+  --success-light: #5AC978;
+  --success-bg: #E8FBE8;
   
-  --warning: #d97706;
-  --warning-dark: #b45309;
-  --warning-light: #f59e0b;
-  --warning-bg: #fffbeb;
+  --warning: #FF9500;
+  --warning-dark: #E68900;
+  --warning-light: #FFB142;
+  --warning-bg: #FFF8E8;
   
-  --danger: #dc2626;
-  --danger-dark: #991b1b;
-  --danger-light: #ef4444;
-  --danger-bg: #fef2f2;
+  --danger: #FF3B30;
+  --danger-dark: #E60005;
+  --danger-light: #FF6B5B;
+  --danger-bg: #FFE8E8;
   
-  --info: #2563eb;
-  --info-dark: #1d4ed8;
-  --info-light: #3b82f6;
-  --info-bg: #eff6ff;
+  --info: #30B0C0;
+  --info-dark: #1B8FA3;
+  --info-light: #64D5E0;
+  --info-bg: #E8F9FC;
   
-  /* NEUTRAL SCALE - Clean & Professional */
-  --neutral-950: #030712;
-  --neutral-900: #111827;
-  --neutral-800: #1f2937;
-  --neutral-700: #374151;
-  --neutral-600: #4b5563;
-  --neutral-500: #6b7280;
-  --neutral-400: #9ca3af;
-  --neutral-300: #d1d5db;
-  --neutral-200: #e5e7eb;
-  --neutral-100: #f3f4f6;
-  --neutral-50: #f9fafb;
+  /* NEUTRAL SCALE - Clean Light Mode */
+  --neutral-950: #000000;
+  --neutral-900: #1A1A1A;
+  --neutral-800: #333333;
+  --neutral-700: #555555;
+  --neutral-600: #666666;
+  --neutral-500: #888888;
+  --neutral-400: #AAAAAA;
+  --neutral-300: #D3D3D3;
+  --neutral-200: #E8E8E8;
+  --neutral-100: #F5F5F5;
+  --neutral-50: #FAFAFA;
 
-  /* Legacy gray scale aliases (keep AppPro colors working) */
+  /* Legacy gray scale aliases */
   --gray-50: var(--neutral-50);
   --gray-100: var(--neutral-100);
   --gray-200: var(--neutral-200);
@@ -64,44 +64,46 @@
   --gray-900: var(--neutral-900);
   --gray-950: var(--neutral-950);
   
-  /* BACKGROUNDS (Single Theme: Dark as default) */
-  --bg-primary: rgba(15, 15, 35, 0.20);
-  --bg-secondary: #0b1020;
-  --bg-tertiary: #111827;
-  --bg-hover: rgba(255, 255, 255, 0.08);
+  /* BACKGROUNDS - Light Mode */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F5F5F5;
+  --bg-tertiary: #EBEBEB;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-inverse: #F9F9FB;
   
   /* TEXT */
-  --text-primary: #e5e7eb;  /* slate-200 */
-  --text-secondary: #94a3b8; /* slate-400 */
-  --text-tertiary: #64748b;  /* slate-500 */
-  --text-inverse: #0b1020;
+  --text-primary: #1A1A1A;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+  --text-inverse: #FFFFFF;
   
-  /* BORDERS */
-  --border-light: rgba(255, 255, 255, 0.12);
-  --border-medium: rgba(255, 255, 255, 0.18);
-  --border-dark: rgba(255, 255, 255, 0.25);
+  /* BORDERS - Subtle Light Mode */
+  --border-light: rgba(0, 0, 0, 0.06);
+  --border-medium: rgba(0, 0, 0, 0.1);
+  --border-dark: rgba(0, 0, 0, 0.15);
   
-  /* SHADOWS - Tuned for dark theme */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 6px 12px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.55);
+  /* SHADOWS - Apple-style soft shadows */
+  --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.14);
+  --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.16);
+  --shadow-2xl: 0 16px 40px rgba(0, 0, 0, 0.18);
   
-  /* BORDER RADIUS */
-  --radius-xs: 0.25rem;
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  /* BORDER RADIUS - Apple-style rounded */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
   --radius-2xl: 1.5rem;
   --radius: var(--radius-lg);
   --radius-full: 9999px;
   
-  /* TRANSITIONS */
-  --transition-fast: 0.12s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* TRANSITIONS - Smooth, responsive */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   
   /* SPACING */
   --spacing-xs: 0.25rem;
@@ -111,18 +113,18 @@
   --spacing-xl: 2rem;
   --spacing-2xl: 3rem;
   
-  /* GRADIENTS */
-  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  --gradient-warm: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%);
-  --gradient-cool: linear-gradient(135deg, #2563eb 0%, #059669 100%);
+  /* GRADIENTS - Vibrant but professional */
+  --gradient-primary: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
+  --gradient-warm: linear-gradient(135deg, #FF9500 0%, #FF3B30 100%);
+  --gradient-cool: linear-gradient(135deg, #30B0C0 0%, #34C759 100%);
+  --gradient-subtle: linear-gradient(135deg, #F0F9FF 0%, #FAF5FF 100%);
 
-  /* GLASS / BACKDROP (used in dark mode and premium UI) */
+  /* GLASS / BACKDROP */
   --backdrop-blur-sm: blur(4px);
   --backdrop-blur: blur(8px);
   --backdrop-blur-xl: blur(16px);
-  --glass-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-  --glass-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.35);
-  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --glass-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 * {
@@ -136,7 +138,7 @@ html {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
   font-weight: 400;
   font-size: 16px;
   line-height: 1.6;
@@ -145,20 +147,20 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  letter-spacing: 0.3px;
 }
 
-/* Single Theme: Dark defaults are set in :root above. */
-
-/* TYPOGRAPHY HIERARCHY */
+/* TYPOGRAPHY HIERARCHY - Apple Style */
 h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
   line-height: 1.2;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--spacing-md);
 }
 
-h1 { font-size: 2.25rem; font-weight: 800; }
-h2 { font-size: 1.875rem; font-weight: 700; }
+h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: 2rem; font-weight: 700; }
 h3 { font-size: 1.5rem; font-weight: 700; }
 h4 { font-size: 1.25rem; font-weight: 600; }
 h5 { font-size: 1.125rem; font-weight: 600; }
@@ -168,13 +170,19 @@ p {
   color: var(--text-secondary);
   font-size: 0.95rem;
   margin-bottom: var(--spacing-md);
+  line-height: 1.65;
+}
+
+small {
+  font-size: 0.85rem;
+  color: var(--text-tertiary);
 }
 
 /* CODE & MONOSPACE */
 code, pre {
   font-family: 'Roboto Mono', 'Monaco', monospace;
   font-size: 0.9em;
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   padding: 0.2em 0.4em;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
@@ -198,7 +206,10 @@ a {
 
 a:hover {
   color: var(--primary-dark);
-  text-decoration: underline;
+}
+
+a:active {
+  opacity: 0.8;
 }
 
 /* SELECTION */
@@ -207,22 +218,25 @@ a:hover {
   color: var(--primary-dark);
 }
 
-/* SCROLLBAR */
+/* SCROLLBAR - Light Mode Apple Style */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--neutral-300);
-  border-radius: 4px;
-  border: 2px solid var(--bg-secondary);
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  transition: background var(--transition-fast);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neutral-400);
+  background: rgba(0, 0, 0, 0.25);
+  background-clip: padding-box;
 }

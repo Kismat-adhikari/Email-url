@@ -136,6 +136,18 @@ const ResultCard = React.memo(({
             {item.checks?.mx_records ? <FiCheck /> : <FiX />}
             <span>MX</span>
           </div>
+          {item.checks?.smtp_verified !== undefined && (
+            <div className={`quick-check ${item.checks.smtp_verified ? 'pass' : 'warn'}`}>
+              {item.checks.smtp_verified ? <FiCheck /> : <FiAlertTriangle />}
+              <span>SMTP</span>
+            </div>
+          )}
+          {item.checks?.is_catch_all !== undefined && (
+            <div className={`quick-check ${item.checks.is_catch_all ? 'warn' : 'pass'}`}>
+              {item.checks.is_catch_all ? <FiAlertTriangle /> : <FiCheck />}
+              <span>Catch-all</span>
+            </div>
+          )}
         </div>
 
         {/* Warnings */}
