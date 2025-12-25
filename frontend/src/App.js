@@ -264,7 +264,18 @@ function App() {
   const [user, setUser] = useState(() => {
     try {
       const savedUser = localStorage.getItem('user');
-      return savedUser && savedUser !== 'undefined' ? JSON.parse(savedUser) : null;
+      const parsedUser = savedUser && savedUser !== 'undefined' ? JSON.parse(savedUser) : null;
+      
+      // If user has team data, log it for debugging
+      if (parsedUser && parsedUser.teamId && parsedUser.teamInfo) {
+        console.log('🔄 Initial user load with team data:', {
+          teamId: parsedUser.teamId,
+          teamInfo: parsedUser.teamInfo,
+          subscriptionTier: parsedUser.subscriptionTier
+        });
+      }
+      
+      return parsedUser;
     } catch {
       return null;
     }
@@ -316,6 +327,15 @@ function App() {
       if (isAdmin !== adminMode) {
         console.log('🛡️ Admin mode changed:', isAdmin);
         setAdminMode(isAdmin);
+        
+        // If switching from admin to regular user, clear admin state completely
+        if (!isAdmin && adminMode) {
+          console.log('🔄 Switching from admin to regular user - clearing admin state');
+          setAdminToken(null);
+          setAdminUser(null);
+          localStorage.removeItem('adminToken');
+          localStorage.removeItem('adminUser');
+        }
       }
       if (token !== adminToken) {
         console.log('🔑 Admin token changed:', token ? `${token.substring(0, 20)}...` : 'null');
@@ -381,11 +401,19 @@ function App() {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear local storage
+      // Clear ALL authentication data (both regular and admin)
       localStorage.removeItem('authToken');
       localStorage.removeItem('user');
+      localStorage.removeItem('adminMode');
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('adminUser');
+      
+      // Reset all state
       setAuthToken(null);
       setUser(null);
+      setAdminMode(false);
+      setAdminToken(null);
+      setAdminUser(null);
       
       // Redirect to app page
       window.location.href = '/app';
@@ -420,6 +448,12 @@ function App() {
               console.log(`🔄 Tier changed: ${user.subscriptionTier} → ${updatedUser.subscriptionTier}`);
             }
             
+            // Check if team data has changed or is newly available
+            const teamDataChanged = JSON.stringify(user.teamInfo) !== JSON.stringify(updatedUser.teamInfo);
+            if (teamDataChanged || !user.teamInfo) {
+              console.log('🔄 Team data updated:', updatedUser.teamInfo);
+            }
+            
             setUser(updatedUser);
             localStorage.setItem('user', JSON.stringify(updatedUser));
             console.log('🔄 User data refreshed from server', forceRefresh ? '(forced)' : '');
@@ -439,7 +473,8 @@ function App() {
       }
     };
 
-    refreshUserData(true); // Force refresh on app load
+    // Force refresh immediately on app load to get latest team data
+    refreshUserData(true);
     
     // Set up periodic refresh every 60 seconds (reduced from 10s to prevent token issues)
     const userRefreshInterval = setInterval(() => {
@@ -1887,13 +1922,22 @@ function App() {
                 </button>
                 <button className="navbar-btn logout-btn" onClick={() => {
                   console.log('🚪 Admin logout clicked');
-                  // Clear admin mode and redirect to admin login
+                  
+                  // Clear ALL authentication data (both admin and regular)
                   localStorage.removeItem('adminMode');
                   localStorage.removeItem('adminToken');
                   localStorage.removeItem('adminUser');
-                  // Also clear regular user data if any
                   localStorage.removeItem('authToken');
                   localStorage.removeItem('user');
+                  
+                  // Reset all state immediately
+                  setAdminMode(false);
+                  setAdminToken(null);
+                  setAdminUser(null);
+                  setAuthToken(null);
+                  setUser(null);
+                  
+                  // Redirect to admin login
                   window.location.href = '/admin/login';
                 }}>
                   <FiLogOut /> Admin Logout

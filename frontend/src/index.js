@@ -5,7 +5,6 @@ import './index.css';
 import './ErrorBoundary.css';
 import './BatchValidation.css';
 import App from './App';
-import HomePage from './HomePage';
 
 import Login from './Login';
 import Signup from './Signup';
@@ -23,7 +22,7 @@ root.render(
     <ErrorBoundary>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<HomePage />} />
+          <Route path="/" element={<App />} />
           <Route path="/app" element={<App />} />
           <Route path="/testing" element={<App />} />
           <Route path="/login" element={<Login />} />
