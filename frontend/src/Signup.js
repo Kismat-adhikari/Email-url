@@ -126,7 +126,7 @@ function Signup() {
           }
         } else {
           // Normal signup flow - redirect to main app
-          window.location.href = '/?signup=success';
+          window.location.href = '/app?signup=success';
         }
       } else {
         setError(data.message || 'Failed to create account. Please try again.');
@@ -191,7 +191,7 @@ function Signup() {
       }}>
         {/* Back Button */}
         <button
-          onClick={() => window.location.href = '/testing'}
+          onClick={() => window.location.href = '/app'}
           style={{
             position: 'absolute',
             top: '24px',

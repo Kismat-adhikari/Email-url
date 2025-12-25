@@ -387,8 +387,8 @@ function App() {
       setAuthToken(null);
       setUser(null);
       
-      // Redirect to landing page
-      window.location.href = '/testing';
+      // Redirect to app page
+      window.location.href = '/app';
     }
   }, [authToken, api]);
 
@@ -1013,39 +1013,85 @@ function App() {
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Accept multiple file types
-      const allowedTypes = [
-        'text/plain',
-        'text/csv',
-        'application/pdf',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      ];
-      
-      const allowedExtensions = ['.txt', '.csv', '.pdf', '.xls', '.xlsx', '.doc', '.docx'];
-      const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-      
-      if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-        setError('Please select a valid file (.txt, .csv, .pdf, .doc, .docx, .xls, .xlsx)');
-        return;
-      }
-      
-      setSelectedFile(file);
-      setError(null);
-      
-      // For text and CSV files, read directly
-      if (file.type === 'text/plain' || file.type === 'text/csv' || fileExtension === '.txt' || fileExtension === '.csv') {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setBatchEmails(event.target.result);
-        };
-        reader.readAsText(file);
-      } else {
-        // For other file types, show a message that we'll extract emails
-        setBatchEmails(`📄 File loaded: ${file.name}\n\nEmails will be extracted automatically when you click "Validate Batch".\n\nSupported formats: PDF, Word, Excel`);
-      }
+      processFile(file);
+    }
+  };
+
+  // New function to handle drag and drop
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      processFile(files[0]);
+    }
+  };
+
+  // Unified file processing function
+  const processFile = (file) => {
+    // Accept multiple file types
+    const allowedTypes = [
+      'text/plain',
+      'text/csv',
+      'application/csv', // Additional CSV MIME type
+      'text/comma-separated-values', // Another CSV MIME type
+      'application/pdf',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    
+    const allowedExtensions = ['.txt', '.csv', '.pdf', '.xls', '.xlsx', '.doc', '.docx'];
+    const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    
+    console.log('File type:', file.type, 'Extension:', fileExtension); // Debug log
+    
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+      setError('Please select a valid file (.txt, .csv, .pdf, .doc, .docx, .xls, .xlsx)');
+      return;
+    }
+    
+    setSelectedFile(file);
+    setError(null);
+    
+    // For text and CSV files, read directly
+    if (file.type === 'text/plain' || 
+        file.type === 'text/csv' || 
+        file.type === 'application/csv' ||
+        file.type === 'text/comma-separated-values' ||
+        fileExtension === '.txt' || 
+        fileExtension === '.csv') {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setBatchEmails(event.target.result);
+      };
+      reader.readAsText(file);
+    } else {
+      // For other file types, show a message that we'll extract emails
+      setBatchEmails(`📄 File loaded: ${file.name}\n\nEmails will be extracted automatically when you click "Validate Batch".\n\nSupported formats: PDF, Word, Excel`);
     }
   };
 
@@ -2455,7 +2501,13 @@ function App() {
               </>
             ) : (
               <div className="file-upload-section">
-                <div className="file-upload-box">
+                <div 
+                  className={`file-upload-box ${isDragOver ? 'drag-over' : ''}`}
+                  onDragOver={handleDragOver}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <input
                     type="file"
                     id="file-input"
@@ -2471,11 +2523,11 @@ function App() {
                         <>
                           <strong>{selectedFile.name}</strong>
                           <br />
-                          <small>Click to change file</small>
+                          <small>Click to change file or drag & drop a new one</small>
                         </>
                       ) : (
                         <>
-                          <strong>Click to upload file</strong>
+                          <strong>Click to upload file or drag & drop</strong>
                           <br />
                           <small>Supports: TXT, CSV, PDF, Word, Excel</small>
                         </>

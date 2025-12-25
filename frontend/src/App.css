@@ -1355,3 +1355,83 @@ label.pro-checkbox input[type="checkbox"]:checked::before,
   text-align: center !important;
   text-shadow: 0 0 2px rgba(0, 255, 0, 0.8) !important; /* Glow effect */
 }
+
+/* File Upload with Drag & Drop */
+.file-upload-section {
+  margin: var(--spacing-lg) 0;
+}
+
+.file-upload-box {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-xl);
+  text-align: center;
+  background: var(--bg-secondary);
+  transition: all 0.3s ease;
+  cursor: pointer;
+  position: relative;
+}
+
+.file-upload-box:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.file-upload-box.drag-over {
+  border-color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.1);
+  border-style: solid;
+  transform: scale(1.02);
+}
+
+.file-upload-label {
+  display: block;
+  cursor: pointer;
+  width: 100%;
+  padding: var(--spacing-md);
+}
+
+.upload-icon {
+  font-size: 2rem;
+  margin-bottom: var(--spacing-sm);
+  display: block;
+}
+
+.upload-text {
+  color: var(--text-primary);
+}
+
+.upload-text strong {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-size: 1.1rem;
+  color: var(--primary-color);
+}
+
+.upload-text small {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.file-preview {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background: var(--bg-primary);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+}
+
+.file-preview strong {
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-sm);
+  display: block;
+}
+
+.batch-input.preview {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-family: monospace;
+  font-size: 0.9rem;
+}

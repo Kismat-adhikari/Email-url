@@ -76,7 +76,7 @@ function Login() {
           }
         } else {
           // Normal login flow - redirect to main app
-          window.location.href = '/';
+          window.location.href = '/app';
         }
       } else {
         // Handle suspension error specially
@@ -137,7 +137,7 @@ function Login() {
       }}>
         {/* Back Button */}
         <button
-          onClick={() => window.location.href = '/testing'}
+          onClick={() => window.location.href = '/app'}
           style={{
             position: 'absolute',
             top: '24px',
